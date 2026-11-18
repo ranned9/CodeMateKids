@@ -1,0 +1,336 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "积木注册表：循环主题子集。前后端连接判定唯一真源。",
+  "portTypes": [
+    "statement-next",
+    "statement-body",
+    "expression",
+    "boolean",
+    "pattern",
+    "handler"
+  ],
+  "portRules": {
+    "statement": {
+      "statement-next": true,
+      "statement-body": true,
+      "expression": false,
+      "boolean": false,
+      "pattern": false,
+      "handler": false
+    },
+    "expression": {
+      "statement-next": false,
+      "statement-body": false,
+      "expression": true,
+      "boolean": false,
+      "pattern": false,
+      "handler": false
+    },
+    "boolean": {
+      "statement-next": false,
+      "statement-body": false,
+      "expression": false,
+      "boolean": true,
+      "pattern": false,
+      "handler": false
+    },
+    "pattern": {
+      "statement-next": false,
+      "statement-body": false,
+      "expression": false,
+      "boolean": false,
+      "pattern": true,
+      "handler": false
+    },
+    "handler": {
+      "statement-next": false,
+      "statement-body": false,
+      "expression": false,
+      "boolean": false,
+      "pattern": false,
+      "handler": true
+    }
+  },
+  "blocks": [
+    {
+      "kind": "event.start",
+      "displayName": "当开始",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_next",
+          "direction": "out",
+          "portType": "statement-next",
+          "accepts": ["statement-next"],
+          "required": false
+        }
+      ],
+      "fields": [],
+      "scopeRule": "none",
+      "targetAnchor": "python.statement",
+      "blockedHint": "这是程序的开始，把动作接在它下面。",
+      "runnable": true,
+      "testCaseRefs": ["TC-BLOCK-START-POS", "TC-BLOCK-START-NEG"]
+    },
+    {
+      "kind": "control.repeat",
+      "displayName": "重复几次",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "in_body",
+          "direction": "in",
+          "portType": "statement-body",
+          "accepts": ["statement-next"],
+          "required": false
+        },
+        {
+          "id": "out_next",
+          "direction": "out",
+          "portType": "statement-next",
+          "accepts": ["statement-next"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "times",
+          "label": "次数",
+          "valueType": "number",
+          "required": true,
+          "defaultValue": 4,
+          "range": {"min": 1, "max": 100}
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.for_statement",
+      "blockedHint": "把要重复的动作放进循环的肚子里。",
+      "runnable": true,
+      "testCaseRefs": ["TC-LOOP-01", "TC-LOOP-NEG-BODY"]
+    },
+    {
+      "kind": "motion.move",
+      "displayName": "向前走",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_next",
+          "direction": "out",
+          "portType": "statement-next",
+          "accepts": ["statement-next"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "steps",
+          "label": "步数",
+          "valueType": "number",
+          "required": true,
+          "defaultValue": 1,
+          "range": {"min": 1, "max": 100}
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.call",
+      "blockedHint": "让角色向前移动几步。",
+      "runnable": true,
+      "testCaseRefs": ["TC-MOVE-01", "TC-MOVE-NEG-EMPTY"]
+    },
+    {
+      "kind": "motion.turn",
+      "displayName": "转个弯",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_next",
+          "direction": "out",
+          "portType": "statement-next",
+          "accepts": ["statement-next"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "degrees",
+          "label": "角度",
+          "valueType": "choice",
+          "required": true,
+          "defaultValue": 90,
+          "choices": [90, 180, 270]
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.call",
+      "blockedHint": "让角色转个方向。",
+      "runnable": true,
+      "testCaseRefs": ["TC-TURN-01", "TC-TURN-NEG-CHOICE"]
+    },
+    {
+      "kind": "look.say",
+      "displayName": "说句话",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_next",
+          "direction": "out",
+          "portType": "statement-next",
+          "accepts": ["statement-next"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "text",
+          "label": "说的话",
+          "valueType": "string",
+          "required": true,
+          "defaultValue": "你好",
+          "maxLength": 20
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.call",
+      "blockedHint": "让角色说一句鼓励自己的话。",
+      "runnable": true,
+      "testCaseRefs": ["TC-SAY-01", "TC-SAY-NEG-LONG"]
+    },
+    {
+      "kind": "text.print",
+      "displayName": "显示结果",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "builtin_types",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_next",
+          "direction": "out",
+          "portType": "statement-next",
+          "accepts": ["statement-next"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "value",
+          "label": "内容",
+          "valueType": "expression",
+          "required": true
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.call",
+      "blockedHint": "把算出来的结果显示出来。",
+      "runnable": true,
+      "testCaseRefs": ["TC-PRINT-01", "TC-PRINT-NEG-EMPTY"]
+    },
+    {
+      "kind": "value.number",
+      "displayName": "数字",
+      "symbol": "expression",
+      "outputType": "expression",
+      "syntaxCategory": "literal_types",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_value",
+          "direction": "out",
+          "portType": "expression",
+          "accepts": ["expression"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "value",
+          "label": "数值",
+          "valueType": "number",
+          "required": true,
+          "defaultValue": 1,
+          "range": {"min": 0, "max": 1000}
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.expression",
+      "blockedHint": "一个数字，可以放进需要数值的位置。",
+      "runnable": true,
+      "testCaseRefs": ["TC-NUMBER-01", "TC-NUMBER-NEG-EMPTY"]
+    },
+    {
+      "kind": "value.calc",
+      "displayName": "算一算",
+      "symbol": "expression",
+      "outputType": "expression",
+      "syntaxCategory": "operators",
+      "definitionVersion": 1,
+      "ports": [
+        {
+          "id": "out_value",
+          "direction": "out",
+          "portType": "expression",
+          "accepts": ["expression"],
+          "required": false
+        }
+      ],
+      "fields": [
+        {
+          "name": "left",
+          "label": "左边",
+          "valueType": "expression",
+          "required": true
+        },
+        {
+          "name": "op",
+          "label": "运算",
+          "valueType": "choice",
+          "required": true,
+          "defaultValue": "+",
+          "choices": ["+", "-", "*", "/"]
+        },
+        {
+          "name": "right",
+          "label": "右边",
+          "valueType": "expression",
+          "required": true
+        }
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.expression",
+      "blockedHint": "把两个数字用一个运算连起来。",
+      "runnable": true,
+      "testCaseRefs": ["TC-CALC-01", "TC-CALC-NEG-EMPTY"]
+    }
+  ],
+  "rejectedKinds": [
+    {
+      "kind": "python.class",
+      "displayName": "类定义",
+      "runnable": false,
+      "blockedHint": "这个积木现在不能运行，演示课不使用类。",
+      "testCaseRefs": ["NEG-CLASS-01"]
+    },
+    {
+      "kind": "python.import",
+      "displayName": "导入模块",
+      "runnable": false,
+      "blockedHint": "这个积木现在不能运行，演示课不导入模块。",
+      "testCaseRefs": ["NEG-IMPORT-01"]
+    }
+  ]
+}

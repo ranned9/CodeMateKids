@@ -1,0 +1,34 @@
+{
+  "format": "codematekids.program",
+  "formatVersion": 1,
+  "target": {
+    "language": "python",
+    "version": "3.12"
+  },
+  "courseRef": {
+    "courseId": "demo-loop",
+    "version": 1,
+    "taskId": "main"
+  },
+  "root": {
+    "blockId": "b-f-start",
+    "kind": "event.start",
+    "inputs": {},
+    "body": [],
+    "next": {
+      "blockId": "b-f-move",
+      "kind": "motion.move",
+      "inputs": {
+        "steps": 1
+      },
+      "body": [],
+      "next": null
+    }
+  },
+  "metadata": {
+    "createdAt": "2026-11-14T00:00:00Z",
+    "updatedAt": "2026-11-14T00:00:00Z"
+  },
+  "sourceCode": "print('hello')",
+  "password": "secret"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "codematekids-harmony-basic",
+  "version": "1.0.0",
+  "description": "鸿蒙基础语言示例（独立支线）",
+  "main": "",
+  "author": "CodeMateKids",
+  "license": "UNLICENSED",
+  "dependencies": {}
+}

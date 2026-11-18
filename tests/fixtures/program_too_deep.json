@@ -1,0 +1,236 @@
+{
+  "format": "codematekids.program",
+  "formatVersion": 1,
+  "target": {
+    "language": "python",
+    "version": "3.12"
+  },
+  "courseRef": {
+    "courseId": "demo-loop",
+    "version": 1,
+    "taskId": "main"
+  },
+  "root": {
+    "blockId": "b-deep-21",
+    "kind": "control.repeat",
+    "inputs": {
+      "times": 2
+    },
+    "body": [
+      {
+        "blockId": "b-deep-20",
+        "kind": "control.repeat",
+        "inputs": {
+          "times": 2
+        },
+        "body": [
+          {
+            "blockId": "b-deep-19",
+            "kind": "control.repeat",
+            "inputs": {
+              "times": 2
+            },
+            "body": [
+              {
+                "blockId": "b-deep-18",
+                "kind": "control.repeat",
+                "inputs": {
+                  "times": 2
+                },
+                "body": [
+                  {
+                    "blockId": "b-deep-17",
+                    "kind": "control.repeat",
+                    "inputs": {
+                      "times": 2
+                    },
+                    "body": [
+                      {
+                        "blockId": "b-deep-16",
+                        "kind": "control.repeat",
+                        "inputs": {
+                          "times": 2
+                        },
+                        "body": [
+                          {
+                            "blockId": "b-deep-15",
+                            "kind": "control.repeat",
+                            "inputs": {
+                              "times": 2
+                            },
+                            "body": [
+                              {
+                                "blockId": "b-deep-14",
+                                "kind": "control.repeat",
+                                "inputs": {
+                                  "times": 2
+                                },
+                                "body": [
+                                  {
+                                    "blockId": "b-deep-13",
+                                    "kind": "control.repeat",
+                                    "inputs": {
+                                      "times": 2
+                                    },
+                                    "body": [
+                                      {
+                                        "blockId": "b-deep-12",
+                                        "kind": "control.repeat",
+                                        "inputs": {
+                                          "times": 2
+                                        },
+                                        "body": [
+                                          {
+                                            "blockId": "b-deep-11",
+                                            "kind": "control.repeat",
+                                            "inputs": {
+                                              "times": 2
+                                            },
+                                            "body": [
+                                              {
+                                                "blockId": "b-deep-10",
+                                                "kind": "control.repeat",
+                                                "inputs": {
+                                                  "times": 2
+                                                },
+                                                "body": [
+                                                  {
+                                                    "blockId": "b-deep-9",
+                                                    "kind": "control.repeat",
+                                                    "inputs": {
+                                                      "times": 2
+                                                    },
+                                                    "body": [
+                                                      {
+                                                        "blockId": "b-deep-8",
+                                                        "kind": "control.repeat",
+                                                        "inputs": {
+                                                          "times": 2
+                                                        },
+                                                        "body": [
+                                                          {
+                                                            "blockId": "b-deep-7",
+                                                            "kind": "control.repeat",
+                                                            "inputs": {
+                                                              "times": 2
+                                                            },
+                                                            "body": [
+                                                              {
+                                                                "blockId": "b-deep-6",
+                                                                "kind": "control.repeat",
+                                                                "inputs": {
+                                                                  "times": 2
+                                                                },
+                                                                "body": [
+                                                                  {
+                                                                    "blockId": "b-deep-5",
+                                                                    "kind": "control.repeat",
+                                                                    "inputs": {
+                                                                      "times": 2
+                                                                    },
+                                                                    "body": [
+                                                                      {
+                                                                        "blockId": "b-deep-4",
+                                                                        "kind": "control.repeat",
+                                                                        "inputs": {
+                                                                          "times": 2
+                                                                        },
+                                                                        "body": [
+                                                                          {
+                                                                            "blockId": "b-deep-3",
+                                                                            "kind": "control.repeat",
+                                                                            "inputs": {
+                                                                              "times": 2
+                                                                            },
+                                                                            "body": [
+                                                                              {
+                                                                                "blockId": "b-deep-2",
+                                                                                "kind": "control.repeat",
+                                                                                "inputs": {
+                                                                                  "times": 2
+                                                                                },
+                                                                                "body": [
+                                                                                  {
+                                                                                    "blockId": "b-deep-1",
+                                                                                    "kind": "control.repeat",
+                                                                                    "inputs": {
+                                                                                      "times": 2
+                                                                                    },
+                                                                                    "body": [
+                                                                                      {
+                                                                                        "blockId": "b-deep-0-move",
+                                                                                        "kind": "motion.move",
+                                                                                        "inputs": {
+                                                                                          "steps": 1
+                                                                                        },
+                                                                                        "body": [],
+                                                                                        "next": null
+                                                                                      }
+                                                                                    ],
+                                                                                    "next": null
+                                                                                  }
+                                                                                ],
+                                                                                "next": null
+                                                                              }
+                                                                            ],
+                                                                            "next": null
+                                                                          }
+                                                                        ],
+                                                                        "next": null
+                                                                      }
+                                                                    ],
+                                                                    "next": null
+                                                                  }
+                                                                ],
+                                                                "next": null
+                                                              }
+                                                            ],
+                                                            "next": null
+                                                          }
+                                                        ],
+                                                        "next": null
+                                                      }
+                                                    ],
+                                                    "next": null
+                                                  }
+                                                ],
+                                                "next": null
+                                              }
+                                            ],
+                                            "next": null
+                                          }
+                                        ],
+                                        "next": null
+                                      }
+                                    ],
+                                    "next": null
+                                  }
+                                ],
+                                "next": null
+                              }
+                            ],
+                            "next": null
+                          }
+                        ],
+                        "next": null
+                      }
+                    ],
+                    "next": null
+                  }
+                ],
+                "next": null
+              }
+            ],
+            "next": null
+          }
+        ],
+        "next": null
+      }
+    ],
+    "next": null
+  },
+  "metadata": {
+    "createdAt": "2026-11-14T00:00:00Z",
+    "updatedAt": "2026-11-14T00:00:00Z"
+  }
+}

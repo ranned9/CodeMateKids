@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "鸿蒙基础语言示例模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "基础语言示例入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "基础语言练习"
+    }
+  ]
+}

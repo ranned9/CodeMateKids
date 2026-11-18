@@ -1,0 +1,6 @@
+{
+  "name": "codematekids-frontend",
+  "private": true,
+  "type": "module",
+  "description": "原生 HTML + ES Module 前端，无构建链"
+}

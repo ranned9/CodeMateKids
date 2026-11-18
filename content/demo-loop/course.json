@@ -1,0 +1,219 @@
+{
+  "courseId": "demo-loop",
+  "version": 1,
+  "title": "让角色重复前进",
+  "ageBand": "小学三年级及以上",
+  "learningObjectives": [
+    "能看出程序里重复出现的动作",
+    "能用重复积木表达重复次数",
+    "能检查角色实际走了几步"
+  ],
+  "prerequisites": ["按顺序执行动作"],
+  "knowledgePoints": [
+    {"id": "kp.sequence", "name": "顺序"},
+    {"id": "kp.loop", "name": "循环"}
+  ],
+  "tasks": [
+    {
+      "taskId": "main",
+      "type": "main",
+      "title": "让角色走四步",
+      "objective": "用重复积木让角色向前走 4 步。角色正好走到第 4 步的位置就算完成。",
+      "predictionQuestion": "先猜一猜：现在的程序会让角色动几次？",
+      "durationHint": "大约 5 分钟",
+      "initialProgram": {
+        "format": "codematekids.program",
+        "formatVersion": 1,
+        "target": {"language": "python", "version": "3.12"},
+        "courseRef": {"courseId": "demo-loop", "version": 1, "taskId": "main"},
+        "root": {
+          "blockId": "b-start-main",
+          "kind": "event.start",
+          "inputs": {},
+          "body": [],
+          "next": {
+            "blockId": "b-repeat-main",
+            "kind": "control.repeat",
+            "inputs": {"times": 2},
+            "body": [
+              {
+                "blockId": "b-move-main",
+                "kind": "motion.move",
+                "inputs": {"steps": 1},
+                "body": [],
+                "next": null
+              }
+            ],
+            "next": null
+          }
+        },
+        "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
+      },
+      "expectedBehavior": "角色向前走到第 4 步的位置，舞台显示累计走了 4 步。",
+      "allowedBlockKinds": [
+        "event.start",
+        "control.repeat",
+        "motion.move",
+        "motion.turn",
+        "look.say"
+      ],
+      "successCriteria": [
+        {
+          "code": "stage_reached_four",
+          "description": "角色累计向前走了 4 步",
+          "check": {"object": "stage", "field": "steps", "op": "eq", "value": 4}
+        }
+      ],
+      "commonErrors": [
+        {
+          "errorPattern": "loop_count_mismatch",
+          "linkedHintLevels": [1, 2, 3],
+          "description": "重复次数与目标步数不一致"
+        },
+        {
+          "errorPattern": "action_outside_loop",
+          "linkedHintLevels": [1, 2],
+          "description": "前进动作没有放进循环体"
+        },
+        {
+          "errorPattern": "move_steps_mismatch",
+          "linkedHintLevels": [2, 3],
+          "description": "每次步数与重复次数的组合不等于目标"
+        }
+      ],
+      "hintLadder": [
+        {
+          "level": 1,
+          "action": "ask_question",
+          "promptText": "目标里要往前走几步？先数一数相同动作出现了几次。",
+          "executableNextStep": "数一数目标要走的步数"
+        },
+        {
+          "level": 2,
+          "action": "hint",
+          "promptText": "看看重复次数和目标步数是否一样。现在重复次数还是 2。",
+          "executableNextStep": "把重复次数改成 4 试试"
+        },
+        {
+          "level": 3,
+          "action": "show_execution",
+          "promptText": "运行后，角色每动一次就亮一次。数一数一共亮了几次。",
+          "executableNextStep": "运行一次，数一数角色走了几步"
+        }
+      ],
+      "demoSolution": {
+        "note": "示范解法，仅在需要时展示",
+        "times": 4,
+        "steps": 1
+      },
+      "variantOf": null,
+      "variantTaskId": "variant",
+      "ageNote": "使用短句和可见角色反馈，每次只需改动一个数字。",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "taskId": "variant",
+      "type": "variant",
+      "title": "小海龟走六步",
+      "objective": "换成小海龟，用重复积木让它向前走 6 步。走到第 6 步就算完成。",
+      "predictionQuestion": "先猜一猜：小海龟这次会动几次？",
+      "durationHint": "大约 4 分钟",
+      "initialProgram": {
+        "format": "codematekids.program",
+        "formatVersion": 1,
+        "target": {"language": "python", "version": "3.12"},
+        "courseRef": {"courseId": "demo-loop", "version": 1, "taskId": "variant"},
+        "root": {
+          "blockId": "b-start-variant",
+          "kind": "event.start",
+          "inputs": {},
+          "body": [],
+          "next": {
+            "blockId": "b-repeat-variant",
+            "kind": "control.repeat",
+            "inputs": {"times": 1},
+            "body": [
+              {
+                "blockId": "b-move-variant",
+                "kind": "motion.move",
+                "inputs": {"steps": 2},
+                "body": [],
+                "next": null
+              }
+            ],
+            "next": {
+              "blockId": "b-say-variant",
+              "kind": "look.say",
+              "inputs": {"text": "我走完啦"},
+              "body": [],
+              "next": null
+            }
+          }
+        },
+        "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
+      },
+      "expectedBehavior": "小海龟累计向前走 6 步，并说出完成的话。",
+      "allowedBlockKinds": [
+        "event.start",
+        "control.repeat",
+        "motion.move",
+        "motion.turn",
+        "look.say"
+      ],
+      "successCriteria": [
+        {
+          "code": "stage_reached_six",
+          "description": "小海龟累计向前走了 6 步",
+          "check": {"object": "stage", "field": "steps", "op": "eq", "value": 6}
+        }
+      ],
+      "commonErrors": [
+        {
+          "errorPattern": "loop_count_mismatch",
+          "linkedHintLevels": [1, 2, 3],
+          "description": "重复次数与每次步数的组合不等于 6"
+        },
+        {
+          "errorPattern": "move_steps_mismatch",
+          "linkedHintLevels": [2, 3],
+          "description": "每次走 2 步时重复次数应为 3"
+        }
+      ],
+      "hintLadder": [
+        {
+          "level": 1,
+          "action": "ask_question",
+          "promptText": "每次走 2 步，要走 6 步，需要重复几次？",
+          "executableNextStep": "想一想 2 和 6 的关系"
+        },
+        {
+          "level": 2,
+          "action": "break_down",
+          "promptText": "先把目标分成几小段：2 步、2 步、2 步，一共几段？",
+          "executableNextStep": "把重复次数改成分段的数量"
+        },
+        {
+          "level": 3,
+          "action": "partial_example",
+          "promptText": "可以先用重复 2 次试试，看看小海龟走到第几步。",
+          "executableNextStep": "运行一次，看看累计步数再调整"
+        }
+      ],
+      "demoSolution": {
+        "note": "示范解法，仅在需要时展示",
+        "times": 3,
+        "steps": 2
+      },
+      "variantOf": "main",
+      "variantTaskId": null,
+      "ageNote": "更换角色和目标数量，检验孩子是否能迁移循环次数与步数的关系。",
+      "reviewStatus": "reviewed"
+    }
+  ],
+  "otherThemes": [
+    {"themeId": "condition", "title": "条件判断", "status": "coming_soon"},
+    {"themeId": "variable", "title": "变量", "status": "coming_soon"}
+  ],
+  "reviewStatus": "reviewed",
+  "contentVersion": "1.1.0"
+}

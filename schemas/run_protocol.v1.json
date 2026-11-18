@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codematekids.local/schemas/run_protocol.v1.json",
+  "title": "运行协议 v1",
+  "type": "object",
+  "$defs": {
+    "runRequest": {
+      "type": "object",
+      "required": ["protocolVersion", "requestId", "cancelToken", "target", "program", "limits", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {"const": 1},
+        "requestId": {"type": "string", "minLength": 1},
+        "cancelToken": {"type": "string", "minLength": 1},
+        "target": {
+          "type": "object",
+          "required": ["language", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "language": {"const": "python"},
+            "version": {"const": "3.12"}
+          }
+        },
+        "program": {"type": "object"},
+        "limits": {
+          "type": "object",
+          "required": ["wallTimeMs", "memoryMb", "maxOutputBytes", "maxRecursionDepth"],
+          "additionalProperties": false,
+          "properties": {
+            "wallTimeMs": {"type": "integer", "minimum": 1, "maximum": 3000},
+            "memoryMb": {"type": "integer", "minimum": 16, "maximum": 128},
+            "maxOutputBytes": {"type": "integer", "minimum": 256, "maximum": 16384},
+            "maxRecursionDepth": {"type": "integer", "minimum": 10, "maximum": 200}
+          }
+        },
+        "mode": {"const": "demo"}
+      }
+    },
+    "runResult": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "requestId",
+        "status",
+        "stdout",
+        "stderr",
+        "error",
+        "events",
+        "durationMs",
+        "truncated",
+        "objects"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {"const": 1},
+        "requestId": {"type": "string"},
+        "status": {
+          "enum": ["completed", "failed", "timeout", "resource_exceeded", "cancelled", "crashed"]
+        },
+        "stdout": {"type": "string"},
+        "stderr": {"type": "string"},
+        "error": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["code", "category", "messageForChild", "blockId", "recoverable"],
+              "additionalProperties": false,
+              "properties": {
+                "code": {"type": "string"},
+                "category": {"type": "string"},
+                "messageForChild": {"type": "string"},
+                "blockId": {"type": ["string", "null"]},
+                "recoverable": {"type": "boolean"}
+              }
+            }
+          ]
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "required": ["seq", "blockId", "kind", "timestampMs"],
+            "additionalProperties": false,
+            "properties": {
+              "seq": {"type": "integer", "minimum": 1},
+              "blockId": {"type": "string"},
+              "kind": {"enum": ["block_enter", "block_exit", "stdout", "exception"]},
+              "timestampMs": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "durationMs": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"},
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "x", "y", "heading", "said", "steps", "moves"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "string"},
+              "x": {"type": "number"},
+              "y": {"type": "number"},
+              "heading": {"type": "number"},
+              "said": {"type": "string"},
+              "steps": {"type": "number"},
+              "moves": {"type": "number"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

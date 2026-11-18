@@ -1,0 +1,27 @@
+{
+  "formatVersion": 0,
+  "course": {
+    "courseId": "demo-loop",
+    "version": 1,
+    "taskId": "main"
+  },
+  "root": {
+    "blockId": "b-v0-start",
+    "kind": "event.start",
+    "inputs": {},
+    "body": [],
+    "next": {
+      "blockId": "b-v0-move",
+      "kind": "motion.move",
+      "inputs": {
+        "steps": 3
+      },
+      "body": [],
+      "next": null
+    }
+  },
+  "target": {
+    "language": "python",
+    "version": "3.12"
+  }
+}

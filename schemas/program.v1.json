@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codematekids.local/schemas/program.v1.json",
+  "title": "codematekids.program",
+  "type": "object",
+  "required": ["format", "formatVersion", "target", "courseRef", "root", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {"const": "codematekids.program"},
+    "formatVersion": {"type": "integer", "const": 1},
+    "target": {
+      "type": "object",
+      "required": ["language", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "language": {"const": "python"},
+        "version": {"const": "3.12"}
+      }
+    },
+    "courseRef": {
+      "type": "object",
+      "required": ["courseId", "version", "taskId"],
+      "additionalProperties": false,
+      "properties": {
+        "courseId": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "taskId": {"type": "string", "minLength": 1}
+      }
+    },
+    "root": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/blockNode"}
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["createdAt", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {"type": "string", "format": "date-time"},
+        "updatedAt": {"type": "string", "format": "date-time"}
+      }
+    }
+  },
+  "$defs": {
+    "blockNode": {
+      "type": "object",
+      "required": ["blockId", "kind", "inputs", "body", "next"],
+      "additionalProperties": false,
+      "properties": {
+        "blockId": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "number"},
+              {"type": "string"},
+              {"type": "boolean"},
+              {"type": "null"},
+              {"$ref": "#/$defs/blockNode"}
+            ]
+          }
+        },
+        "body": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/blockNode"}
+        },
+        "next": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/blockNode"}
+          ]
+        },
+        "unknown": {"type": "boolean"}
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+"""路由聚合入口。"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+
+def build_router() -> APIRouter:
+    from backend.api.routers import (
+        course,
+        diagnostics,
+        matrix,
+        projects,
+        runs,
+        session,
+        startup,
+        tutor,
+    )
+
+    router = APIRouter(prefix="/api/v1")
+    router.include_router(startup.router)
+    router.include_router(course.router)
+    router.include_router(runs.router)
+    router.include_router(tutor.router)
+    router.include_router(projects.router)
+    router.include_router(session.router)
+    router.include_router(matrix.router)
+    router.include_router(diagnostics.router)
+    return router

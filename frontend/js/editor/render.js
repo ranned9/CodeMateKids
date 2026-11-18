@@ -1,0 +1,447 @@
+/** Canvas 2D 渲染：外壳/积木/状态分层，插入线与容器高亮。 */
+
+const COLORS = {
+  event: { fill: "#2f7f78", stroke: "#25635e", text: "#ffffff" },
+  control: { fill: "#c4782b", stroke: "#9c5d1c", text: "#ffffff" },
+  motion: { fill: "#496dbe", stroke: "#36549b", text: "#ffffff" },
+  look: { fill: "#6b5bb5", stroke: "#52449a", text: "#ffffff" },
+  text: { fill: "#3f8f6f", stroke: "#307257", text: "#ffffff" },
+  value: { fill: "#4f9a5f", stroke: "#3a7848", text: "#ffffff" },
+  unknown: { fill: "#9aa2b1", stroke: "#6f7787", text: "#ffffff" },
+};
+
+function paletteFor(def) {
+  if (!def) {
+    return COLORS.unknown;
+  }
+  if (def.kind.startsWith("event.")) return COLORS.event;
+  if (def.kind.startsWith("control.")) return COLORS.control;
+  if (def.kind.startsWith("motion.")) return COLORS.motion;
+  if (def.kind.startsWith("look.")) return COLORS.look;
+  if (def.kind.startsWith("text.")) return COLORS.text;
+  return COLORS.value;
+}
+
+function roundRect(ctx, x, y, w, h, radius) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function truncate(text, maxChars) {
+  const value = String(text ?? "");
+  return value.length > maxChars ? `${value.slice(0, maxChars - 1)}…` : value;
+}
+
+function expressionLabel(node, definitions) {
+  if (!node) {
+    return "";
+  }
+  const definition = definitions.get(node.kind);
+  if (node.kind === "value.number") {
+    return `数字 ${node.inputs?.value ?? 0}`;
+  }
+  if (node.kind === "value.calc") {
+    const left = expressionLabel(node.inputs?.left, definitions) || "?";
+    const right = expressionLabel(node.inputs?.right, definitions) || "?";
+    return `(${left} ${node.inputs?.op ?? "+"} ${right})`;
+  }
+  return definition?.displayName || "未知积木";
+}
+
+function fieldValueText(block, field, definitions) {
+  const value = block.node.inputs?.[field.name];
+  if (field.valueType === "expression") {
+    return value ? expressionLabel(value, definitions) : "这个位置暂时不能用";
+  }
+  if (value === "" || value == null) {
+    return "待填写";
+  }
+  return String(value);
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {any} layout
+ * @param {any} view
+ */
+export function drawScene(ctx, layout, view) {
+  const { width, height } = view;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#fdfefe";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#eef2f8";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < width; x += 26) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = 0; y < height; y += 26) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+
+  const scrollY = view.scrollY || 0;
+  ctx.save();
+  ctx.translate(0, -scrollY);
+  if (Array.isArray(layout.nodes) && layout.drawOrder?.length) {
+    const byId = new Map(layout.nodes.map((node) => [node.blockId, node]));
+    for (const item of layout.drawOrder) {
+      const node = byId.get(item.blockId);
+      if (!node) {
+        continue;
+      }
+      const section = layout.sections?.[node.blockId];
+      if (item.layer === "shell") {
+        drawContainerShell(ctx, node, section, view);
+      } else if (item.layer === "block") {
+        drawBlockLayer(ctx, node, section, view);
+      } else {
+        drawStateMarks(ctx, node, section, view);
+      }
+    }
+  } else {
+    for (const block of layout.blocks || []) {
+      drawLegacyBlock(ctx, block, view);
+    }
+  }
+  if (view.previewLayer) {
+    drawPreview(ctx, view.previewLayer, layout, view);
+  }
+  ctx.restore();
+}
+
+function nodeDef(node, view) {
+  return view.definitions?.get?.(node.kind) || null;
+}
+
+function drawContainerShell(ctx, node, section, view) {
+  if (!section?.bodyBox) {
+    return;
+  }
+  const def = nodeDef(node, view);
+  const palette = paletteFor(def);
+  const body = section.bodyBox;
+  ctx.save();
+  ctx.globalAlpha = 0.14;
+  ctx.fillStyle = palette.fill;
+  roundRect(ctx, body.x, body.y, body.w, body.h, 8);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = palette.fill;
+  const wallWidth = Math.max(10, body.x - section.header.x);
+  ctx.fillRect(section.header.x, body.y, wallWidth, body.h);
+  ctx.fillRect(section.header.x, section.foot.y, node.rect.w, section.foot.h);
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(section.header.x + wallWidth - 2, body.y + 2, 2, Math.max(0, body.h - 4));
+}
+
+function drawBlockLayer(ctx, node, section, view) {
+  const def = nodeDef(node, view);
+  const palette = paletteFor(def);
+  const isUnknown = node.unknown;
+  const fill = isUnknown ? COLORS.unknown.fill : palette.fill;
+  const stroke = isUnknown ? COLORS.unknown.stroke : palette.stroke;
+
+  ctx.save();
+  if (node.isContainer && section?.header) {
+    ctx.shadowColor = "rgba(34, 55, 96, 0.16)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+    roundRect(ctx, section.header.x, section.header.y, section.header.w, section.header.h, 10);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = fill;
+    ctx.fillRect(section.header.x, section.header.y + section.header.h - 10, section.header.w, 10);
+  } else {
+    ctx.shadowColor = "rgba(34, 55, 96, 0.16)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+    roundRect(ctx, node.rect.x, node.rect.y, node.rect.w, node.rect.h, 10);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  if (node.isContainer && section?.header) {
+    roundRect(ctx, section.header.x, section.header.y, section.header.w, section.header.h, 10);
+    ctx.stroke();
+  } else {
+    roundRect(ctx, node.rect.x, node.rect.y, node.rect.w, node.rect.h, 10);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = palette.text;
+  ctx.font = "700 15px 'Microsoft YaHei UI', sans-serif";
+  ctx.fillText(truncate(def?.displayName || "未知积木", 10), section?.header.x ? section.header.x + 12 : node.rect.x + 12, node.rect.y + 22);
+  if (isUnknown) {
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "700 11px 'Microsoft YaHei UI', sans-serif";
+    ctx.fillText("不可执行", node.rect.x + node.rect.w - 62, node.rect.y + 20);
+  }
+
+  for (const field of node.fields || []) {
+    drawField(ctx, node, field, view);
+  }
+
+  if ((def?.ports || []).some((port) => port.portType === "statement-next")) {
+    roundRect(ctx, node.rect.x + node.rect.w / 2 - 14, node.rect.y + node.rect.h - 5, 28, 10, 5);
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.fill();
+  }
+
+  if (node.isContainer && section?.bodyBox && (node.body || []).length === 0) {
+    ctx.save();
+    ctx.fillStyle = "rgba(47, 64, 94, 0.72)";
+    ctx.font = "12px 'Microsoft YaHei UI', sans-serif";
+    ctx.fillText("把要重复的动作拖进来", section.bodyBox.x + 12, section.bodyBox.y + 24);
+    ctx.strokeStyle = "rgba(47, 64, 94, 0.5)";
+    ctx.lineWidth = 2;
+    const arrowX = section.bodyBox.x + section.bodyBox.w - 22;
+    const arrowY = section.bodyBox.y + 14;
+    ctx.beginPath();
+    ctx.moveTo(arrowX, arrowY);
+    ctx.lineTo(arrowX, arrowY + 10);
+    ctx.moveTo(arrowX - 4, arrowY + 6);
+    ctx.lineTo(arrowX, arrowY + 10);
+    ctx.lineTo(arrowX + 4, arrowY + 6);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawField(ctx, node, field, view) {
+  const palette = paletteFor(nodeDef(node, view));
+  const valueText = fieldValueText({ node }, field, view.definitions);
+  if (field.valueType === "expression") {
+    const filled = Boolean(node.inputs?.[field.name]);
+    roundRect(ctx, field.rect.x, field.rect.y, field.rect.w, field.rect.h, 6);
+    ctx.fillStyle = filled ? "#e8f6ec" : "rgba(255,255,255,0.22)";
+    ctx.fill();
+    ctx.strokeStyle = filled ? "#3f8f6f" : "rgba(255,255,255,0.65)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = filled ? "#205c39" : "rgba(255,255,255,0.85)";
+    ctx.font = "12px 'Cascadia Mono', Consolas, monospace";
+    ctx.fillText(truncate(valueText, 18), field.rect.x + 6, field.rect.y + 13);
+    return;
+  }
+  ctx.fillStyle = "rgba(255,255,255,0.24)";
+  roundRect(ctx, field.rect.x, field.rect.y, field.rect.w, field.rect.h, 6);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.font = "11px 'Microsoft YaHei UI', sans-serif";
+  ctx.fillText(String(field.label || field.name), field.rect.x + 6, field.rect.y + 12);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 13px 'Microsoft YaHei UI', sans-serif";
+  ctx.fillText(truncate(valueText, 14), field.rect.x + 46, field.rect.y + 13);
+  if (view.editable && field.valueType === "choice") {
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = "10px 'Microsoft YaHei UI', sans-serif";
+    ctx.fillText("点击更换", field.rect.x + field.rect.w - 44, field.rect.y + 12);
+  }
+}
+
+function drawStateMarks(ctx, node, section, view) {
+  const selected = view.selectedId === node.blockId;
+  const running = view.runningId === node.blockId;
+  const error = view.errorId === node.blockId;
+  const invalid = view.invalidIds?.has(node.blockId);
+  if (!selected && !running && !error && !invalid) {
+    return;
+  }
+  const color = selected
+    ? "#1b3f9e"
+    : running
+      ? "#ffd23f"
+      : error
+        ? "#ff6b6b"
+        : "#ffd08a";
+  const width = selected || running ? 3 : 2.5;
+  const dashed = !selected && !running;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  if (dashed) {
+    ctx.setLineDash([6, 4]);
+  }
+  if (node.isContainer && section?.outline) {
+    ctx.beginPath();
+    section.outline.forEach((point, index) => {
+      if (index === 0) {
+        ctx.moveTo(point.x - 2, point.y - 2);
+      } else {
+        ctx.lineTo(point.x - 2, point.y - 2);
+      }
+    });
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    roundRect(ctx, node.rect.x - 2, node.rect.y - 2, node.rect.w + 4, node.rect.h + 4, 12);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  if (running) {
+    ctx.fillStyle = "#3a2c00";
+    roundRect(ctx, node.rect.x + node.rect.w - 66, node.rect.y + 6, 58, 18, 8);
+    ctx.fill();
+    ctx.fillStyle = "#ffe082";
+    ctx.font = "700 11px 'Microsoft YaHei UI', sans-serif";
+    ctx.fillText("▶ 运行中", node.rect.x + node.rect.w - 60, node.rect.y + 19);
+  }
+  if (error || invalid) {
+    ctx.fillStyle = error ? "#7c2622" : "#7a4b00";
+    ctx.font = "700 12px 'Microsoft YaHei UI', sans-serif";
+    ctx.fillText(
+      error ? "! 出错了" : "! 需要填写",
+      node.rect.x + node.rect.w - 70,
+      node.rect.y + (node.isContainer ? section.header.h - 4 : node.rect.h - 6),
+    );
+  }
+}
+
+function drawLegacyBlock(ctx, block, view) {
+  if (!block) {
+    return;
+  }
+  const def = block.def;
+  const palette = paletteFor(def);
+  ctx.save();
+  roundRect(ctx, block.x, block.y, block.w, block.h, 10);
+  ctx.fillStyle = block.unknown ? COLORS.unknown.fill : palette.fill;
+  ctx.fill();
+  ctx.strokeStyle = palette.stroke;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = palette.text;
+  ctx.font = "700 15px 'Microsoft YaHei UI', sans-serif";
+  ctx.fillText(truncate(block.def?.displayName || "未知积木", 10), block.x + 12, block.y + 22);
+}
+
+function drawPreview(ctx, preview, layout, view) {
+  const target = preview.target;
+  const valid = preview.valid;
+  const accent = valid ? "#2f9e63" : "#d9534f";
+  const visual = target?.visual;
+
+  if (visual?.containerId) {
+    const section = layout.sections?.[visual.containerId];
+    if (section?.outline) {
+      ctx.save();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      section.outline.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  if (visual?.type === "rect") {
+    ctx.save();
+    ctx.setLineDash(valid ? [6, 4] : [2, 3]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = accent;
+    roundRect(ctx, visual.x - 2, visual.y - 2, visual.w + 4, visual.h + 4, 8);
+    ctx.stroke();
+    ctx.restore();
+  } else if (visual?.type === "line") {
+    drawInsertLine(ctx, visual, accent, valid);
+    if (!valid) {
+      drawInvalidBadge(ctx, visual.x + visual.w - 6, visual.y - 10);
+    }
+  }
+
+  if (preview.kind) {
+    const definition = view.definitions.get(preview.kind);
+    const palette = paletteFor(definition);
+    ctx.save();
+    ctx.translate(preview.x + 95, preview.y + 21);
+    ctx.rotate((-4 * Math.PI) / 180);
+    ctx.globalAlpha = 0.78;
+    roundRect(ctx, -95, -21, 190, 42, 9);
+    ctx.fillStyle = palette.fill;
+    ctx.fill();
+    ctx.strokeStyle = palette.stroke;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 13px 'Microsoft YaHei UI', sans-serif";
+    ctx.fillText(truncate(definition?.displayName || "积木", 10), -85, 5);
+    ctx.restore();
+  }
+
+  if (preview.message) {
+    const text = truncate(preview.message, 24);
+    ctx.save();
+    ctx.font = "12px 'Microsoft YaHei UI', sans-serif";
+    const textWidth = ctx.measureText(text).width;
+    const boxW = Math.min(textWidth + 20, view.width - 16);
+    const boxX = Math.min(Math.max(preview.x - 10, 8), Math.max(8, view.width - boxW - 8));
+    const boxY = Math.min(preview.y + 50, view.height - 34);
+    roundRect(ctx, boxX, boxY, boxW, 24, 8);
+    ctx.fillStyle = valid ? "#e8f7f0" : "#fdeceb";
+    ctx.fill();
+    ctx.strokeStyle = valid ? "#bfe6d6" : "#f3c7c5";
+    ctx.stroke();
+    ctx.fillStyle = valid ? "#17795e" : "#b3342f";
+    ctx.fillText(text, boxX + 10, boxY + 16);
+    ctx.restore();
+  }
+}
+
+function drawInsertLine(ctx, visual, color, valid) {
+  const length = Math.max(24, visual.w - 24);
+  const startX = visual.x + 12;
+  const y = visual.y;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.setLineDash(valid ? [] : [2, 3]);
+  ctx.beginPath();
+  ctx.moveTo(startX, y);
+  ctx.lineTo(startX + length, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = color;
+  roundRect(ctx, startX - 3, y - 3, 6, 6, 2);
+  ctx.fill();
+  roundRect(ctx, startX + length - 3, y - 3, 6, 6, 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawInvalidBadge(ctx, x, y) {
+  ctx.save();
+  ctx.strokeStyle = "#d9534f";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x - 5, y - 5);
+  ctx.lineTo(x + 5, y + 5);
+  ctx.moveTo(x + 5, y - 5);
+  ctx.lineTo(x - 5, y + 5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+export { expressionLabel, fieldValueText, truncate };

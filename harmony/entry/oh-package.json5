@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "基础语言示例入口模块",
+  "main": "",
+  "author": "CodeMateKids",
+  "license": "UNLICENSED",
+  "dependencies": {}
+}

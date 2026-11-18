@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "kinds": [
+    "event.start",
+    "control.repeat",
+    "motion.move",
+    "motion.turn",
+    "look.say",
+    "value.number",
+    "value.calc"
+  ]
+}

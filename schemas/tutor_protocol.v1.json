@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codematekids.local/schemas/tutor_protocol.v1.json",
+  "title": "辅导协议 v1",
+  "type": "object",
+  "$defs": {
+    "actions": [
+      "ask_question",
+      "hint",
+      "point_to_block",
+      "show_execution",
+      "analogy",
+      "partial_example",
+      "break_down",
+      "explain",
+      "offer_variant"
+    ],
+    "learnerChoices": ["hint", "more_hint", "example", "self_try", "skip", "none"],
+    "tutorRequest": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "requestId",
+        "mode",
+        "locale",
+        "taskContext",
+        "programSummary",
+        "evidence",
+        "learnerChoice",
+        "safety"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {"const": 1},
+        "requestId": {"type": "string"},
+        "mode": {"enum": ["mock", "model"]},
+        "locale": {"const": "zh-CN"},
+        "taskContext": {
+          "type": "object",
+          "required": ["courseId", "taskId", "objective"],
+          "additionalProperties": false,
+          "properties": {
+            "courseId": {"type": "string"},
+            "taskId": {"type": "string"},
+            "objective": {"type": "string"}
+          }
+        },
+        "programSummary": {
+          "type": "object",
+          "required": ["valid", "summary", "lastRunStatus"],
+          "additionalProperties": false,
+          "properties": {
+            "valid": {"type": "boolean"},
+            "summary": {"type": "string"},
+            "lastRunStatus": {"type": ["string", "null"]}
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "fact", "confidence"],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "enum": [
+                  "answer",
+                  "run_result",
+                  "edit_trace",
+                  "hint_usage",
+                  "transfer_task",
+                  "self_feedback"
+                ]
+              },
+              "fact": {"type": "string"},
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        },
+        "learnerChoice": {"enum": ["hint", "more_hint", "example", "self_try", "skip", "none"]},
+        "safety": {
+          "type": "object",
+          "required": ["demoDataOnly"],
+          "additionalProperties": false,
+          "properties": {"demoDataOnly": {"const": true}}
+        }
+      }
+    },
+    "tutorResponse": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "action",
+        "message",
+        "nextStep",
+        "evidenceUsed",
+        "uncertainty",
+        "answerLevel",
+        "mode",
+        "showAsDemo"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {"type": "string"},
+        "action": {
+          "enum": [
+            "ask_question",
+            "hint",
+            "point_to_block",
+            "show_execution",
+            "analogy",
+            "partial_example",
+            "break_down",
+            "explain",
+            "offer_variant"
+          ]
+        },
+        "message": {"type": "string", "maxLength": 120},
+        "nextStep": {"type": "string"},
+        "evidenceUsed": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "answer",
+              "run_result",
+              "edit_trace",
+              "hint_usage",
+              "transfer_task",
+              "self_feedback"
+            ]
+          }
+        },
+        "uncertainty": {"type": "string"},
+        "answerLevel": {"enum": [0, 1, 2, 3], "description": "0 表示未追加提示，仅用于 self_try/skip"},
+        "mode": {"enum": ["mock", "model"]},
+        "showAsDemo": {"type": "boolean"},
+        "fallbackReason": {"type": "string"}
+      }
+    }
+  }
+}

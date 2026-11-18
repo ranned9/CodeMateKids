@@ -1,0 +1,215 @@
+{
+  "schemaVersion": "1.0.0",
+  "replies": [
+    {
+      "taskId": "main",
+      "errorPattern": "loop_count_mismatch",
+      "learnerChoice": "hint",
+      "level": 1,
+      "action": "ask_question",
+      "message": "目标要往前走几步？先数一数相同动作出现了几次。",
+      "nextStep": "数一数目标要走的步数",
+      "uncertainty": "我还不知道你数出来是几步。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "loop_count_mismatch",
+      "learnerChoice": "more_hint",
+      "level": 2,
+      "action": "hint",
+      "message": "看看重复次数和目标步数是不是一样。现在重复次数还是 2。",
+      "nextStep": "把重复次数改成 4 试试",
+      "uncertainty": "也许你想的是另一种走法。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "loop_count_mismatch",
+      "learnerChoice": "more_hint",
+      "level": 3,
+      "action": "show_execution",
+      "message": "运行后角色每动一次会亮一次，数一数亮了三次还是四次。",
+      "nextStep": "运行一次，数一数角色走了几步",
+      "uncertainty": "运行结果会告诉我们答案。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "action_outside_loop",
+      "learnerChoice": "hint",
+      "level": 1,
+      "action": "point_to_block",
+      "message": "看看「向前走」是不是在重复积木的里面，而不是旁边。",
+      "nextStep": "把「向前走」放进重复积木的肚子里",
+      "uncertainty": "我还不确定你把它放在了哪里。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "action_outside_loop",
+      "learnerChoice": "more_hint",
+      "level": 2,
+      "action": "break_down",
+      "message": "先放重复积木，再把「向前走」拖到它的语句体里，这样才会重复。",
+      "nextStep": "把动作拖进循环体",
+      "uncertainty": "如果拖不进去，可以检查一下积木类型。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "move_steps_mismatch",
+      "learnerChoice": "hint",
+      "level": 2,
+      "action": "analogy",
+      "message": "重复次数乘每次走的步数，就是总步数。先算一算现在一共走了几步。",
+      "nextStep": "用次数乘以步数算一算",
+      "uncertainty": "我不确定你想先改次数还是步数。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "move_steps_mismatch",
+      "learnerChoice": "more_hint",
+      "level": 3,
+      "action": "partial_example",
+      "message": "如果每次走 1 步，要让总数是 4，重复几次就够呢？",
+      "nextStep": "试试把重复次数改成 4",
+      "uncertainty": "你也可以用别的组合。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "default",
+      "learnerChoice": "hint",
+      "level": 1,
+      "action": "ask_question",
+      "message": "先看看角色现在走到了哪里，再和目标比一比。",
+      "nextStep": "运行一次，观察角色的位置",
+      "uncertainty": "我还没看到你这次的运行结果。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "default",
+      "learnerChoice": "example",
+      "level": 1,
+      "action": "analogy",
+      "message": "把重复想成跳格子：跳一次走一格，要跳 4 格就重复 4 次。",
+      "nextStep": "想想你的目标相当于跳几格",
+      "uncertainty": "这个例子和你的目标可能不完全一样。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "default",
+      "learnerChoice": "self_try",
+      "level": 0,
+      "action": "hint",
+      "message": "好呀，你自己试试。我在这里，需要时再叫我。",
+      "nextStep": "继续修改并运行",
+      "uncertainty": "先不追加提示。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "default",
+      "learnerChoice": "skip",
+      "level": 0,
+      "action": "offer_variant",
+      "message": "可以先休息一下，任务会留在这里，想回来时随时回来。",
+      "nextStep": "选择稍后回来或看看变式任务",
+      "uncertainty": "节奏由你来决定。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "ask_answer",
+      "learnerChoice": "hint",
+      "level": 1,
+      "action": "hint",
+      "message": "我先不直接给完整答案。先想一想：角色要走几步，重复积木就重复几次。",
+      "nextStep": "把重复次数改成目标步数试试",
+      "uncertainty": "也许你已经知道答案，只是想确认。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "personal_info",
+      "learnerChoice": "none",
+      "level": 1,
+      "action": "hint",
+      "message": "这些个人信息不用告诉我。我们回到角色走几步这个问题吧。",
+      "nextStep": "看看重复次数是不是 4",
+      "uncertainty": "我只需要知道程序的情况。"
+    },
+    {
+      "taskId": "main",
+      "errorPattern": "off_topic",
+      "learnerChoice": "none",
+      "level": 1,
+      "action": "hint",
+      "message": "这个问题我们先放一放，回到小角色身上：它应该走几步呢？",
+      "nextStep": "回到任务，看看目标步数",
+      "uncertainty": "我不知道你刚才想聊什么。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "loop_count_mismatch",
+      "learnerChoice": "hint",
+      "level": 1,
+      "action": "ask_question",
+      "message": "每次走 2 步，要走 6 步，需要重复几次？",
+      "nextStep": "想一想 2 和 6 的关系",
+      "uncertainty": "我还不知道你算出了几次。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "loop_count_mismatch",
+      "learnerChoice": "more_hint",
+      "level": 2,
+      "action": "break_down",
+      "message": "把 6 步分一分：2 步、2 步、2 步，一共分成几段？",
+      "nextStep": "把重复次数改成分段的数量",
+      "uncertainty": "你也可以换一种每次步数。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "loop_count_mismatch",
+      "learnerChoice": "more_hint",
+      "level": 3,
+      "action": "partial_example",
+      "message": "先用重复 2 次试试，看看小海龟走到第几步，再决定还要不要加一次。",
+      "nextStep": "运行一次，看累计步数再调整",
+      "uncertainty": "结果会告诉你还差几步。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "default",
+      "learnerChoice": "hint",
+      "level": 1,
+      "action": "ask_question",
+      "message": "小海龟和上次的角色不一样，但重复的想法是一样的。先看看它走了几步。",
+      "nextStep": "运行一次，观察小海龟的位置",
+      "uncertainty": "我还没看到这次的结果。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "default",
+      "learnerChoice": "example",
+      "level": 1,
+      "action": "analogy",
+      "message": "像分糖果一样：一共 6 步，每次拿 2 步，需要拿 3 次。",
+      "nextStep": "试试把重复次数改成 3",
+      "uncertainty": "你也可以用每次 1 步、重复 6 次。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "default",
+      "learnerChoice": "self_try",
+      "level": 0,
+      "action": "hint",
+      "message": "好呀，你自己试试。需要时再叫我。",
+      "nextStep": "继续修改并运行",
+      "uncertainty": "先不追加提示。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "default",
+      "learnerChoice": "skip",
+      "level": 0,
+      "action": "offer_variant",
+      "message": "可以先休息一下，这个任务会留在这里。",
+      "nextStep": "选择稍后回来",
+      "uncertainty": "节奏由你来决定。"
+    }
+  ]
+}

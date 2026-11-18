@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeMateKids · 小小编程课堂</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">◆</span>
+      <span class="brand-name">小小编程课堂</span>
+      <span class="brand-sub">AI 编程小老师</span>
+    </div>
+    <div class="status-bar" id="status-bar" role="status" aria-live="polite">
+      <span class="status-chip" id="python-chip">Python 版本检查中…</span>
+      <span class="status-chip" id="version-chip">课程 / schema 版本检查中…</span>
+      <span class="status-chip mode-chip" id="mode-chip">辅导模式检查中…</span>
+      <span class="status-chip" id="run-state-chip">准备中</span>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="ghost-button" id="summary-open">学习总结</button>
+      <button type="button" class="ghost-button" id="save-project">保存作品</button>
+      <button type="button" class="ghost-button" id="open-project">打开作品</button>
+      <input type="file" id="project-file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <section class="startup-banner" id="startup-banner" aria-live="polite">
+    <div class="startup-title" id="startup-title">正在准备课堂…</div>
+    <ul class="startup-checks" id="startup-checks"></ul>
+    <div class="startup-actions">
+      <button type="button" class="primary-button" id="startup-retry">重新检查</button>
+      <button type="button" class="ghost-button" id="startup-enter">进入课堂</button>
+    </div>
+  </section>
+
+  <p class="viewport-notice" role="status">建议窗口至少 1024×768</p>
+
+  <main class="workspace" id="workspace">
+    <aside class="panel course-panel" id="course-panel" aria-label="课程区">
+      <h2 class="panel-title">课程区</h2>
+      <div id="course-content">
+        <p class="muted">正在读取课程…</p>
+      </div>
+      <div class="prediction-box" id="prediction-box">
+        <label for="prediction-input" id="prediction-label">先猜一猜角色会动几次？</label>
+        <div class="prediction-row">
+          <input type="number" id="prediction-input" min="0" max="1000" inputmode="numeric" value="">
+          <button type="button" class="primary-button" id="prediction-submit">提交预测</button>
+        </div>
+        <p class="hint-text" id="prediction-feedback"></p>
+      </div>
+    </aside>
+
+    <section class="panel editor-panel" aria-label="积木工作区">
+      <div class="toolbox" id="toolbox" aria-label="工具箱">
+        <h2 class="panel-title">工具箱</h2>
+        <div id="toolbox-list"></div>
+      </div>
+      <div class="canvas-wrap">
+        <div class="canvas-toolbar">
+          <span class="canvas-title" id="canvas-title">积木画布</span>
+          <span class="canvas-tip">拖动积木，靠近插口会亮起来</span>
+        </div>
+        <div class="canvas-stage">
+          <canvas id="block-canvas" width="720" height="460" aria-label="积木画布"></canvas>
+          <div class="canvas-empty" id="canvas-empty">
+            从左边工具箱拖一个积木开始吧
+          </div>
+        </div>
+        <div class="mirror-host" id="a11y-mirror" aria-label="积木语义列表"></div>
+        <div class="code-preview" aria-label="只读代码预览">
+          <div class="code-preview-head">积木对应的 Python 3.12（只读）</div>
+          <pre id="code-preview-text"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel control-panel" aria-label="运行控制">
+      <h2 class="panel-title">运行控制</h2>
+      <div class="control-row">
+        <button type="button" class="primary-button" id="run-button">运行</button>
+        <button type="button" class="danger-button" id="stop-button" disabled>停止</button>
+        <button type="button" class="ghost-button" id="reset-button">重置</button>
+      </div>
+      <p class="hint-text" id="run-hint">先完成预测，就可以运行啦。</p>
+      <div class="object-view" aria-label="角色状态">
+        <div class="object-title">舞台</div>
+        <div class="stage-track" id="stage-track">
+          <div class="stage-actor" id="stage-actor">🐢</div>
+        </div>
+        <div class="object-meta" id="object-meta">角色还没有动过。</div>
+      </div>
+    </section>
+
+    <section class="panel result-panel" id="result-panel" aria-label="结果区">
+      <h2 class="panel-title">结果区</h2>
+      <div id="result-content">
+        <p class="muted">运行一次，就能看到结果啦。</p>
+      </div>
+      <div class="result-output" id="live-output" hidden></div>
+      <div class="prediction-compare" id="prediction-compare" hidden>
+        <div class="compare-title">预测和结果</div>
+        <div class="compare-grid">
+          <span>你的预测</span><strong id="compare-prediction">—</strong>
+          <span>实际观察</span><strong id="compare-actual">—</strong>
+          <span>是否一致</span><strong id="compare-match">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel tutor-panel" id="tutor-panel" aria-label="辅导区">
+      <div class="tutor-head">
+        <h2 class="panel-title">辅导区</h2>
+        <span class="mode-badge" id="tutor-mode-badge">演示回复</span>
+      </div>
+      <div class="tutor-message" id="tutor-message">
+        <p class="muted">需要帮忙时，点下面的按钮。小老师会先给轻轻的小提示。</p>
+      </div>
+      <div class="tutor-actions">
+        <button type="button" class="ghost-button" data-choice="hint">轻提示</button>
+        <button type="button" class="ghost-button" data-choice="more_hint">更多提示</button>
+        <button type="button" class="ghost-button" data-choice="example">换个例子</button>
+        <button type="button" class="ghost-button" data-choice="self_try">我想自己试</button>
+        <button type="button" class="ghost-button" data-choice="skip">先跳过</button>
+      </div>
+      <div class="tutor-ask">
+        <label for="tutor-input">问问小老师</label>
+        <textarea id="tutor-input" rows="2" maxlength="300" placeholder="例如：为什么角色走了 2 步？"></textarea>
+        <button type="button" class="primary-button" id="tutor-submit">提问</button>
+      </div>
+      <div class="tutor-detail" id="tutor-detail"></div>
+    </section>
+  </main>
+
+  <section class="summary-panel" id="summary-panel" hidden aria-label="学习总结">
+    <div class="summary-inner">
+      <h2>这节课的小总结</h2>
+      <div id="summary-content"></div>
+      <div class="summary-actions">
+        <button type="button" class="primary-button" id="summary-variant">再练一次变式</button>
+        <button type="button" class="ghost-button" id="summary-skipped">看看跳过的任务</button>
+        <button type="button" class="ghost-button" id="summary-finish">结束演示</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <div class="sr-only" id="drag-live" aria-live="polite" aria-atomic="true"></div>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h3 id="confirm-title">确认</h3>
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button value="save" class="primary-button">保存</button>
+        <button value="discard" class="danger-button">放弃修改</button>
+        <button value="cancel" class="ghost-button">取消</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
