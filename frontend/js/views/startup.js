@@ -47,13 +47,15 @@ export function renderStartup(data, elements, callbacks) {
     elements.modeBadge.textContent = isMock ? "演示回复" : "真实模型";
   }
 
-  retry.hidden = data.status === "ready";
-  enter.hidden = data.status !== "ready";
+  retry.hidden = data.status === "ready" && !callbacks.courseUpdatePending;
+  enter.hidden = data.status !== "ready" || Boolean(callbacks.courseUpdatePending);
   retry.onclick = () => callbacks.onRetry();
   enter.onclick = () => callbacks.onEnter();
 
   if (data.status === "fatal") {
     title.textContent = "需要先调整运行环境";
+  } else if (callbacks.courseUpdatePending) {
+    title.textContent = "课程等待载入";
   }
   return data.status;
 }

@@ -18,6 +18,24 @@ def clear_startup_cache():
     startup_mod._CACHE.clear()
 
 
+def test_classroom_uses_fresh_frontend_assets(client) -> None:
+    page = client.get("/?v=number-controls")
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store"
+    assert 'href="/assets/css/app.css"' in page.text
+    assert 'src="/assets/js/main.js"' in page.text
+
+    for path in (
+        "/assets/css/app.css",
+        "/assets/js/main.js",
+        "/assets/js/views/canvas.js",
+        "/assets/js/editor/number-controls.js",
+    ):
+        asset = client.get(path)
+        assert asset.status_code == 200
+        assert asset.headers["cache-control"] == "no-store"
+
+
 def test_startup_ready_uses_worker_probe(settings) -> None:
     data = check_startup(settings)
     assert data["status"] == "ready"

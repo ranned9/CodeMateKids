@@ -29,6 +29,23 @@ export function canConnect(schema, definition, targetPortType) {
   return { ok: false, reason: "NOT_ALLOWED_HERE", message: REASON_TEXT.NOT_ALLOWED_HERE };
 }
 
+export function canConnectToTarget(schema, definition, target, numberValue) {
+  if (target.numberRange) {
+    if (definition?.kind !== "value.number") {
+      return { ok: false, reason: "NEEDS_VALUE", message: "次数格只接收数字积木。" };
+    }
+    const { min, max } = target.numberRange;
+    if (numberValue !== undefined && (!Number.isInteger(numberValue) || numberValue < min || numberValue > max)) {
+      return {
+        ok: false,
+        reason: "INVALID_NUMBER",
+        message: `重复次数需要填 ${min} 到 ${max} 之间的整数。`,
+      };
+    }
+  }
+  return canConnect(schema, definition, target.portType || portTypeOfTarget(target.id));
+}
+
 export function slotAccepts(slot) {
   if (slot.type === "slot") {
     return "expression";
@@ -49,7 +66,7 @@ export function portTypeOfTarget(ref) {
   if (typeof ref !== "string") {
     return null;
   }
-  if (ref === "root" || ref.startsWith("root@")) {
+  if (ref === "root" || ref.startsWith("root@") || ref.startsWith("stack:")) {
     return "statement-next";
   }
   if (ref.startsWith("body:")) {

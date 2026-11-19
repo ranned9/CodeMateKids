@@ -1,5 +1,5 @@
 /** 运行栅栏：读取后端 runCapability，叠加任务/只读/预测/本地校验。 */
-import { validateTree } from "../editor/model.js";
+import { runnableRoots, validateTree, workspaceStacks } from "../editor/model.js";
 
 const FALLBACK_WORKER_REASON = "运行环境没有准备好，可以点重新检查。";
 
@@ -47,8 +47,11 @@ export function evaluateRunGate({ state, taskId, root, validate = null }) {
   if (!state.prediction.has(taskId)) {
     return { allowed: false, reason: "先猜一猜角色会动几次。" };
   }
-  if (!root) {
+  if (!workspaceStacks(root).length) {
     return { allowed: false, reason: "先拖一个积木到画布上。" };
+  }
+  if (!runnableRoots(root).length) {
+    return { allowed: false, reason: "把要运行的积木接在「当开始」下面。" };
   }
   const validation = validate ? validate() : validateTree(root);
   if (!validation.ok) {

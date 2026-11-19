@@ -1,15 +1,22 @@
 /** 自研 Canvas 工作区视图：布局、渲染、拖放、字段编辑、撤销与可访问性。 */
 import { computeLayout } from "../editor/layout.js";
 import { drawScene } from "../editor/render.js";
-import { cloneTree, findBlock, planDrop, programSummary, removeBlock, validateTree, walkNodes } from "../editor/model.js";
+import { STACK_START, cloneTree, findBlock, numberInputValue, programSummary, removeBlock, runnableRoots, validateTree, walkNodes, workspaceStacks } from "../editor/model.js";
+import { planWorkspaceDrop } from "../editor/workspace.js";
 import { DndController } from "../editor/dnd.js";
 import { emptyLayoutModel } from "../editor/targets.js";
+import { canConnectToTarget } from "../editor/connector.js";
 import { attachKeyboard } from "../editor/keyboard.js";
+import { NumberControls } from "../editor/number-controls.js";
 import { syncMirror } from "../util/a11y.js";
 
 function previewCode(root, definitions) {
-  if (!root) {
+  if (!workspaceStacks(root).length) {
     return "# 画布是空的\n";
+  }
+  const roots = runnableRoots(root);
+  if (!roots.length) {
+    return "# 把动作接在「当开始」下面就能运行\n";
   }
   const lines = [];
   function expression(node) {
@@ -35,10 +42,11 @@ function previewCode(root, definitions) {
       if (current.kind === "event.start") {
         lines.push(`${pad}pass  # 当开始`);
       } else if (current.kind === "control.repeat") {
-        lines.push(`${pad}for _repeat_${guard} in range(${current.inputs?.times ?? 0}):`);
-        const body = current.body?.[0];
-        if (body) {
-          chain(body, indent + 1);
+        lines.push(`${pad}for _repeat_${guard} in range(${numberInputValue(current.inputs?.times) ?? 0}):`);
+        if (current.body?.length) {
+          for (const child of current.body) {
+            chain(child, indent + 1);
+          }
         } else {
           lines.push(`${pad}    pass`);
         }
@@ -56,7 +64,9 @@ function previewCode(root, definitions) {
       current = current.next;
     }
   }
-  chain(root, 0);
+  for (const script of roots) {
+    chain(script, 0);
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -75,23 +85,30 @@ export class EditorView {
     this.ctx = this.canvas.getContext("2d");
     this.layout = emptyLayoutModel({ w: 720, h: 460, scrollY: 0 });
     this.preview = null;
+    this.scrollX = 0;
     this.scrollY = 0;
     this.width = 720;
     this.height = 460;
     this.fieldEditor = null;
+    this.numberControls = new NumberControls(this);
     window.__cmkState = this.state;
     window.__cmkEditor = this;
-    this.dnd = new DndController(this);
+    this.dnd = new DndController(this, { toolbox: options.toolbox });
     this.dnd.bind();
     attachKeyboard(this, this.handlers);
-    this.canvas.addEventListener("wheel", (event) => {
-      const maxScroll = Math.max(0, this.layout.height - this.height + 24);
-      if (maxScroll <= 0) {
-        this.scrollY = 0;
+    this.stage.addEventListener("wheel", (event) => {
+      const maxX = Math.max(0, this.layout.contentWidth - this.width + 24);
+      const maxY = Math.max(0, this.layout.height - this.height + 24);
+      const dx = event.shiftKey ? event.deltaX || event.deltaY : event.deltaX;
+      const dy = event.shiftKey ? 0 : event.deltaY;
+      const x = Math.max(0, Math.min(maxX, this.scrollX + dx * 0.6));
+      const y = Math.max(0, Math.min(maxY, this.scrollY + dy * 0.6));
+      if (x === this.scrollX && y === this.scrollY) {
         return;
       }
       event.preventDefault();
-      this.scrollY = Math.max(0, Math.min(maxScroll, this.scrollY + event.deltaY * 0.6));
+      this.scrollX = x;
+      this.scrollY = y;
       this.refresh();
     }, { passive: false });
     if (typeof ResizeObserver !== "undefined") {
@@ -107,10 +124,13 @@ export class EditorView {
 
   setProgram(root, { clearHistory = true, notify = true } = {}) {
     this.cancelDrag("context");
+    this.cancelFieldEdit();
+    this.numberControls.reset();
     this.state.root = root;
     this.state.selectedBlockId = null;
     this.state.errorBlockId = null;
     this.state.runningBlockId = null;
+    this.scrollX = 0;
     this.scrollY = 0;
     if (clearHistory) {
       this.history.clear();
@@ -133,13 +153,14 @@ export class EditorView {
     this.layout = computeLayout(this.state.root, definitions, {
       w: this.width,
       h: this.height,
+      scrollX: this.scrollX ?? 0,
       scrollY: this.scrollY,
     });
     const validation = validateTree(this.state.root);
     this.state.invalidBlockIds = validation.invalidIds;
     this.render();
     if (this.empty) {
-      this.empty.hidden = Boolean(this.state.root);
+      this.empty.hidden = workspaceStacks(this.state.root).length > 0;
     }
     if (this.mirror) {
       syncMirror(this.mirror, this.layout.nodes || [], this.state);
@@ -151,6 +172,8 @@ export class EditorView {
 
   render() {
     this.measure();
+    const editable = !this.state.readonly && ["editing", "result", "error"].includes(this.state.phase);
+    const numberControls = this.numberControls.sync(editable, Boolean(this.dnd.session?.moved));
     const dpr = window.devicePixelRatio || 1;
     if (this.canvas.width !== Math.round(this.width * dpr)) {
       this.canvas.width = Math.round(this.width * dpr);
@@ -167,8 +190,10 @@ export class EditorView {
       runningId: this.state.runningBlockId,
       errorId: this.state.errorBlockId,
       invalidIds: this.state.invalidBlockIds,
-      editable: !this.state.readonly && this.state.phase !== "running",
+      editable,
+      numberControls,
       previewLayer: this.preview,
+      scrollX: this.scrollX,
       scrollY: this.scrollY,
     });
   }
@@ -178,7 +203,7 @@ export class EditorView {
     const scaleX = this.width / rect.width;
     const scaleY = this.height / rect.height;
     return {
-      x: (event.clientX - rect.left) * scaleX,
+      x: (event.clientX - rect.left) * scaleX + (this.scrollX ?? 0),
       y: (event.clientY - rect.top) * scaleY + this.scrollY,
     };
   }
@@ -219,7 +244,7 @@ export class EditorView {
       return false;
     }
     let found = false;
-    walkNodes(ancestor, (node) => {
+    walkNodes({ ...ancestor, next: null }, (node) => {
       if (node.blockId === targetId) {
         found = true;
       }
@@ -227,8 +252,12 @@ export class EditorView {
     return found;
   }
 
-  insertFromKeyboard(kind) {
-    if (this.state.readonly || this.state.phase === "running") {
+  insertFromToolbox(kind) {
+    if (this.state.readonly) {
+      this.toast(this.state.readonlyReason || "这个作品现在只能看。");
+      return false;
+    }
+    if (!["editing", "result", "error"].includes(this.state.phase)) {
       this.toast("程序正在运行，可以先停止再修改。");
       return false;
     }
@@ -237,36 +266,65 @@ export class EditorView {
       this.toast("这个积木现在不能运行。");
       return false;
     }
-    if (definition.outputType === "expression") {
-      this.toast("当前课程暂时不能放这个积木。");
-      return false;
+    const target = this.defaultInsertTarget(definition);
+    const placement = target
+      ? { valid: true, target, portType: target.portType }
+      : {
+          valid: true,
+          freePosition: {
+            x: (this.scrollX ?? 0) + STACK_START.x,
+            y: this.layout.nodes.length ? this.layout.height : STACK_START.y,
+          },
+        };
+    const placed = this.commitDrop(null, kind, placement);
+    if (placed) {
+      const selected = this.layout.nodes.find((node) => node.blockId === this.state.selectedBlockId);
+      if (selected && (selected.rect.y < this.scrollY || selected.rect.y + 36 > this.scrollY + this.height)) {
+        this.scrollY = Math.max(0, selected.rect.y - 16);
+        this.refresh();
+      }
     }
-    const targetId = this.keyboardTargetId();
-    const target = (this.layout.targets || []).find((item) => item.id === targetId);
-    if (!target) {
-      this.toast("这里暂时放不了，试试先选中一个积木。");
-      return false;
-    }
-    return this.commitDrop(null, kind, { valid: true, message: "", target, portType: target.portType });
+    return placed;
   }
 
-  keyboardTargetId() {
-    if (!this.state.root) {
-      return "root@start";
-    }
+  defaultInsertTarget(definition) {
+    const { nodes, targets } = this.layout;
     const selected = this.state.selectedBlockId;
-    if (selected && findBlock(this.state.root, selected)) {
-      const selectedNode = (this.layout.nodes || []).find((node) => node.blockId === selected);
-      if (selectedNode && selectedNode.ownerId !== "root") {
-        return `body:${selectedNode.ownerId}@after:${selected}`;
-      }
-      return `root@after:${selected}`;
+    if (nodes.length === 0) {
+      return definition.kind === "event.start" && this.state.root == null ? targets[0] : null;
     }
-    const rootNodes = (this.layout.nodes || [])
-      .filter((node) => node.ownerId === "root")
-      .sort((a, b) => a.order - b.order);
-    const last = rootNodes[rootNodes.length - 1];
-    return last ? `root@after:${last.blockId}` : "root@start";
+    if (definition.kind === "event.start") {
+      return null;
+    }
+    if (definition.outputType === "expression") {
+      let firstEmpty = null;
+      for (const target of targets) {
+        if (target.portType !== "expression" || !canConnectToTarget(this.state.schema, definition, target).ok) {
+          continue;
+        }
+        const owner = findBlock(this.state.root, target.ownerId);
+        const value = owner?.inputs?.[target.field];
+        if (target.ownerId === selected && (value == null || (target.numberRange && typeof value === "number"))) {
+          return target;
+        }
+        if (value == null) {
+          firstEmpty ??= target;
+        }
+      }
+      return firstEmpty;
+    }
+    let selectedNode = nodes.find((node) => node.blockId === selected);
+    while (selectedNode?.ownerId.startsWith("expr:")) {
+      selectedNode = nodes.find((node) => node.blockId === selectedNode.parentBlockId);
+    }
+    if (selectedNode) {
+      const { blockId, ownerId, depth, isContainer } = selectedNode;
+      const targetId = isContainer
+        ? `body:${blockId}@start`
+        : `${depth === 0 ? ownerId : `body:${ownerId}`}@after:${blockId}`;
+      return targets.find((target) => target.id === targetId);
+    }
+    return targets.filter((target) => target.portType === "statement-next").at(-1);
   }
 
   editFirstField() {
@@ -284,7 +342,7 @@ export class EditorView {
   }
 
   commitDrop(blockId, kind, targetResult) {
-    if (!targetResult || targetResult.valid !== true || !targetResult.target) {
+    if (!targetResult || targetResult.valid !== true || (!targetResult.target && !targetResult.freePosition)) {
       if (targetResult?.message) {
         this.toast(targetResult.message);
       }
@@ -295,6 +353,16 @@ export class EditorView {
       this.toast("这个积木现在不能运行。");
       return false;
     }
+    if (targetResult.target) {
+      const numberValue = kind === "value.number" && blockId
+        ? findBlock(this.state.root, blockId)?.inputs?.value
+        : undefined;
+      const connection = canConnectToTarget(this.state.schema, definition, targetResult.target, numberValue);
+      if (!connection.ok) {
+        this.toast(connection.message);
+        return false;
+      }
+    }
     const beforeRoot = cloneTree(this.state.root);
     const beforeSelected = this.state.selectedBlockId;
     const beforeDirty = this.state.dirty;
@@ -302,17 +370,22 @@ export class EditorView {
     const redoDepth = this.history.redoStack?.length ?? 0;
     const type = targetResult.portType === "expression" ? "connect" : blockId ? "move" : "insert";
     try {
-      const plan = planDrop(this.state.root, {
+      const plan = planWorkspaceDrop(this.state.root, {
         blockId: blockId || null,
         kind,
         definition,
-        targetId: targetResult.target.id,
+        definitions: this.state.blocksByKind,
+        targetId: targetResult.target?.id,
+        freePosition: targetResult.freePosition,
       });
       if (!plan.ok) {
         if (plan.message) {
           this.toast(plan.message);
         }
         return false;
+      }
+      if (plan.root === this.state.root) {
+        return true;
       }
       this.state.root = plan.root;
       if (plan.node) {
@@ -343,32 +416,40 @@ export class EditorView {
   }
 
   deleteSelected() {
-    if (this.state.readonly || this.state.phase === "running") {
-      this.toast("程序正在运行，可以先停止再修改。");
-      return;
-    }
-    const blockId = this.state.selectedBlockId;
+    return this.deleteBlock(this.state.selectedBlockId, { confirmBody: true });
+  }
+
+  deleteBlock(blockId, { confirmBody = false } = {}) {
     if (!blockId) {
-      return;
+      return false;
+    }
+    if (this.state.readonly) {
+      this.toast(this.state.readonlyReason || "这个作品现在只能看。");
+      return false;
+    }
+    if (!["editing", "result", "error"].includes(this.state.phase)) {
+      this.toast("程序正在运行，可以先停止再修改。");
+      return false;
     }
     const node = findBlock(this.state.root, blockId);
     if (!node) {
-      return;
+      return false;
     }
-    if (node.body && node.body.length > 0) {
+    if (confirmBody && node.body?.length) {
       const confirmed = window.confirm("删除这个积木会同时移除里面的动作，确定吗？");
       if (!confirmed) {
-        return;
+        return false;
       }
     }
     const before = cloneTree(this.state.root);
-    const result = removeBlock(this.state.root, blockId);
+    const result = removeBlock(this.state.root, blockId, { definitions: this.state.blocksByKind });
     this.state.root = result.root;
     this.state.selectedBlockId = null;
     this.state.dirty = true;
     this.history.record("delete", before, cloneTree(result.root));
     this.refresh();
     this.onChange("program");
+    return true;
   }
 
   startFieldEdit(blockId, fieldName) {
@@ -380,19 +461,26 @@ export class EditorView {
     if (!block) {
       return;
     }
-    const field = (block.fields || []).find((item) => item.name === fieldName);
+    const field = this.fieldForEdit(blockId, block.fields?.find((item) => item.name === fieldName));
     if (!field || field.valueType === "expression") {
       return;
     }
+    const currentValue = block.node.inputs?.[fieldName];
+    if (field.acceptsNumberBlock && currentValue?.kind === "value.number") {
+      this.startFieldEdit(currentValue.blockId, "value");
+      return;
+    }
     this.cancelFieldEdit();
+    if (field.inlineNumber && this.numberControls.focus(blockId)) {
+      return;
+    }
     const stageRect = this.stage.getBoundingClientRect();
     const canvasRect = this.canvas.getBoundingClientRect();
     const scaleX = canvasRect.width / this.width;
     const scaleY = canvasRect.height / this.height;
-    const left = field.rect.x * scaleX + (canvasRect.left - stageRect.left);
+    const left = (field.rect.x - (this.scrollX ?? 0)) * scaleX + (canvasRect.left - stageRect.left);
     const top = (field.rect.y - this.scrollY) * scaleY + (canvasRect.top - stageRect.top);
     const width = Math.max(70, field.rect.w * scaleX);
-    const currentValue = block.node.inputs?.[fieldName];
 
     let input;
     if (field.valueType === "choice") {
@@ -408,7 +496,10 @@ export class EditorView {
       }
     } else {
       input = document.createElement("input");
-      input.type = field.valueType === "number" ? "number" : "text";
+      input.type = field.valueType === "number" || field.valueType === "integer" ? "number" : "text";
+      if (field.valueType === "integer") {
+        input.step = "1";
+      }
       if (field.range) {
         if (field.range.min != null) input.min = String(field.range.min);
         if (field.range.max != null) input.max = String(field.range.max);
@@ -458,16 +549,37 @@ export class EditorView {
     }
   }
 
+  fieldForEdit(blockId, field) {
+    if (field?.valueType !== "number") {
+      return field;
+    }
+    let slot = null;
+    walkNodes(this.state.root, (node) => {
+      const fields = this.state.blocksByKind.get(node.kind)?.fields || [];
+      slot ??= fields.find((item) => item.acceptsNumberBlock && node.inputs?.[item.name]?.blockId === blockId);
+    });
+    return slot ? { ...field, valueType: "integer", range: slot.range } : field;
+  }
+
   commitFieldValue(blockId, fieldName, rawValue) {
     const block = findBlock(this.state.root, blockId);
     const definition = this.state.blocksByKind.get(block?.kind);
-    const field = (definition?.fields || []).find((item) => item.name === fieldName);
+    const field = this.fieldForEdit(blockId, definition?.fields?.find((item) => item.name === fieldName));
     if (!block || !field) {
       return;
     }
+    const currentValue = block.inputs[fieldName];
+    if (field.acceptsNumberBlock && currentValue?.kind === "value.number") {
+      this.commitFieldValue(currentValue.blockId, "value", rawValue);
+      return;
+    }
     let value = rawValue;
-    if (field.valueType === "number") {
+    if (field.valueType === "number" || field.valueType === "integer") {
       value = Number(rawValue);
+      if (field.valueType === "integer" && (!String(rawValue).trim() || !Number.isInteger(value))) {
+        this.toast("这个位置需要一个整数。");
+        return;
+      }
       if (!Number.isFinite(value)) {
         this.toast("这个位置需要一个数字。");
         return;

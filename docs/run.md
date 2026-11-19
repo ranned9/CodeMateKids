@@ -1,6 +1,6 @@
 # Windows Demo 运行说明
 
-> 适用版本：CodeMateKids 0.1.0（含 0.2.0 编辑器拖放与嵌套修复）
+> 适用范围：当前 Windows Demo 工作区。代码职责与关键流程见 [实现架构](architecture.md)。
 > 运行环境：Windows 10/11 64 位 + Python 3.12（本机实测 3.12.9）
 > 演示模式：默认 `mock`（演示回复），全程不要求外网。
 
@@ -94,6 +94,7 @@ node tests/js_editor_check.mjs
 node tests/js_static_check.mjs
 node tests/js_artifact_state_check.mjs
 node tests/js_dom_text_check.mjs
+node tests/js_project_course_check.mjs
 node tests/js_run_session_check.mjs
 node tests/js_view_context_check.mjs
 ```
@@ -107,11 +108,12 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8011
 检查项：
 
 - `GET /` 返回 200，包含 `#block-canvas` 与 `#toolbox-list`。
-- `GET /css/app.css` 返回 200，包含 `touch-action: none`。
-- `GET /js/main.js` 与 `GET /js/editor/targets.js` 返回 200。
-- `GET /api/v1/startup/check` 的 `data.status` 非 `fatal`，`data.contentVersion` 为 `1.1.0`。
+- `GET /assets/css/app.css` 返回 200，包含 `touch-action: none`。
+- `GET /assets/js/main.js`、`GET /assets/js/editor/targets.js`、`GET /assets/js/workflows/projects.js` 和 `GET /assets/js/workflows/course.js` 返回 200。
+- 课堂网页与静态资源返回 `Cache-Control: no-store`，打开页面时浏览器会向当前服务获取文件。
+- `GET /api/v1/startup/check` 的 `data.status` 非 `fatal`，`data.contentVersion` 为 `1.2.0`。
 - `GET /api/v1/blocks/schema` 仍包含 `value.number`/`value.calc`。
-- `GET /api/v1/course/demo-loop` 的两个任务 `allowedBlockKinds` 均不含 `value.*`。
+- `GET /api/v1/course/demo-loop` 的两个任务 `allowedBlockKinds` 均包含 `text.print`、`value.number` 和 `value.calc`。
 
 查看脱敏日志（仅回环可用）：
 
@@ -130,7 +132,7 @@ http://127.0.0.1:8000/api/v1/matrix
 | 现象 | 处置 |
 |---|---|
 | 提示需要 Python 3.12 | 安装 Python 3.12 并确保 `python` 指向它；不要用 3.11 或更低版本 |
-| 端口 8000 被占用 | 设置 `CMK_PORT`，并用相同端口访问页面 |
+| 端口 8000 被占用 | 手动启动 uvicorn 并指定空闲的 `--port`，再用相同端口访问页面 |
 | 运行小助手未通过 | 点“重新检查”；检查 Python 是否可正常启动子进程，或安全软件是否拦截 |
 | 课程内容打不开 | 检查 `content/demo-loop/` 三个 JSON 是否完整，schema 版本是否匹配 |
 | 页面样式/脚本 404 | 确认 `frontend/` 目录完整，服务从项目根目录启动 |

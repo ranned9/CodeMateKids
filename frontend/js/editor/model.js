@@ -1,6 +1,8 @@
 /** 程序模型树操作：节点创建、查找、事务化挂接、摘除与序列化。 */
 
 let idCounter = 0;
+export const STACK_START = { x: 30, y: 26 };
+export const STACK_LIMIT = { x: 4096, y: 8192 };
 
 export function newId() {
   idCounter += 1;
@@ -43,12 +45,35 @@ export function cloneTree(root) {
   return root == null ? null : JSON.parse(JSON.stringify(root));
 }
 
+export function numberInputValue(value) {
+  return value?.kind === "value.number" ? value.inputs?.value : value;
+}
+
+export function workspaceStacks(root) {
+  if (Array.isArray(root)) {
+    return root;
+  }
+  return root ? [{ ...STACK_START, root, legacy: root.kind !== "event.start" }] : [];
+}
+
+export function runnableRoots(root) {
+  return workspaceStacks(root)
+    .filter((stack) => stack.legacy || stack.root.kind === "event.start")
+    .map((stack) => stack.root);
+}
+
 /**
  * @param {any} node
  * @param {(node:any)=>void} visit
  */
 export function walkNodes(node, visit, guard = { count: 0 }) {
   if (!node || guard.count > 2000) {
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const stack of node) {
+      walkNodes(stack.root, visit, guard);
+    }
     return;
   }
   guard.count += 1;
@@ -86,18 +111,47 @@ export function chainTail(node) {
   return current;
 }
 
+// 循环体按数组顺序连接各条语句链，每条链按 next 遍历。
+export function* bodyStatements(body) {
+  for (const head of body || []) {
+    let child = head;
+    let count = 0;
+    while (child && count < 200) {
+      yield child;
+      child = child.next;
+      count += 1;
+    }
+  }
+}
+
 /**
- * 从树中摘除节点（语句链或表达式槽位），保留其余结构。
+ * 从语句链或表达式槽位摘除积木，可一并带走后续语句。
  * @returns {{root:any, node:any}}
  */
-export function detachBlock(root, blockId) {
+export function detachBlock(root, blockId, { keepTail = false, definitions } = {}) {
   if (!root) {
     return { root: null, node: null };
   }
+  if (Array.isArray(root)) {
+    for (const [index, stack] of root.entries()) {
+      const detached = detachBlock(stack.root, blockId, { keepTail, definitions });
+      if (detached.node) {
+        if (detached.root) {
+          stack.root = detached.root;
+        } else {
+          root.splice(index, 1);
+        }
+        return { root, node: detached.node };
+      }
+    }
+    return { root, node: null };
+  }
   if (root.blockId === blockId) {
     const node = root;
-    const newRoot = node.next;
-    node.next = null;
+    const newRoot = keepTail ? null : node.next;
+    if (!keepTail) {
+      node.next = null;
+    }
     return { root: newRoot, node };
   }
 
@@ -107,19 +161,24 @@ export function detachBlock(root, blockId) {
     }
     if (owner.next && owner.next.blockId === blockId) {
       const node = owner.next;
-      owner.next = node.next;
-      node.next = null;
+      owner.next = keepTail ? null : node.next;
+      if (!keepTail) {
+        node.next = null;
+      }
       return node;
     }
     for (let index = 0; index < (owner.body || []).length; index += 1) {
       const child = owner.body[index];
       if (child.blockId === blockId) {
         const node = child;
-        owner.body[index] = node.next;
-        if (!owner.body[index]) {
+        if (keepTail || !node.next) {
           owner.body.splice(index, 1);
+        } else {
+          owner.body[index] = node.next;
         }
-        node.next = null;
+        if (!keepTail) {
+          node.next = null;
+        }
         return node;
       }
       const nested = visit(child);
@@ -146,7 +205,8 @@ export function detachBlock(root, blockId) {
     for (const [field, value] of Object.entries(node.inputs || {})) {
       if (value && typeof value === "object" && value.blockId === blockId) {
         expressionNode = value;
-        node.inputs[field] = null;
+        const input = definitions?.get(node.kind)?.fields?.find((item) => item.name === field);
+        node.inputs[field] = input?.acceptsNumberBlock ? input.defaultValue : null;
       }
     }
   });
@@ -169,7 +229,7 @@ export function attachToBody(owner, node) {
   if (!owner.body || owner.body.length === 0) {
     owner.body = [node];
   } else {
-    chainTail(owner.body[0]).next = node;
+    chainTail(owner.body.at(-1)).next = node;
   }
 }
 
@@ -278,14 +338,10 @@ export function insertAfterAnchor(workRoot, ref, chain) {
 }
 
 function isDirectBodyChild(owner, blockId) {
-  let child = owner.body?.[0];
-  let guard = 0;
-  while (child && guard < 200) {
-    guard += 1;
+  for (const child of bodyStatements(owner.body)) {
     if (child.blockId === blockId) {
       return true;
     }
-    child = child.next;
   }
   return false;
 }
@@ -308,7 +364,7 @@ function parseTargetId(targetId) {
   const value = targetId.trim();
   if (value.startsWith("expr:")) {
     const body = value.slice(5);
-    const dot = body.indexOf(".");
+    const dot = body.lastIndexOf(".");
     if (dot <= 0 || dot === body.length - 1) {
       return null;
     }
@@ -334,12 +390,11 @@ function parseTargetId(targetId) {
   return { containerRef, anchorRef };
 }
 
-function findPosition(root, blockId, ownerRef = "root") {
+function findPosition(root, blockId, ownerRef = "root", previous = null) {
   if (!root) {
     return null;
   }
   let node = root;
-  let previous = null;
   let guard = 0;
   while (node && guard < 300) {
     guard += 1;
@@ -350,14 +405,13 @@ function findPosition(root, blockId, ownerRef = "root") {
         node,
       };
     }
+    let previousChild = null;
     for (const child of node.body || []) {
-      if (child.blockId === blockId) {
-        return { containerRef: `body:${node.blockId}`, anchorRef: "start", node: child };
-      }
-      const nested = findPosition(child, blockId, `body:${node.blockId}`);
+      const nested = findPosition(child, blockId, `body:${node.blockId}`, previousChild);
       if (nested) {
         return nested;
       }
+      previousChild = chainTail(child);
     }
     previous = node;
     node = node.next;
@@ -385,21 +439,24 @@ function checkLocalStructure(root) {
  * @param {{blockId?:string|null,kind?:string,definition?:any,targetId:string}} request
  * @returns {{ok:boolean,message:string,root:any,node?:any}}
  */
-export function planDrop(root, { blockId, kind, definition, targetId }) {
+export function planDrop(root, { blockId, definition, definitions, targetId }) {
   const ref = parseTargetId(targetId);
   if (!ref) {
     return { ok: false, message: "这个位置不能放积木。", root };
   }
   if (ref.field) {
     const owner = findBlock(root, ref.ownerId);
-    if (!owner) {
+    if (!owner || !Object.prototype.hasOwnProperty.call(owner.inputs || {}, ref.field)) {
       return { ok: false, message: "找不到这个位置。", root };
+    }
+    if (blockId && owner.inputs[ref.field]?.blockId === blockId) {
+      return { ok: true, message: "", root, node: owner.inputs[ref.field] };
     }
     const work = cloneTree(root);
     const workOwner = findBlock(work, ref.ownerId);
     let node;
     if (blockId) {
-      const detached = detachBlock(work, blockId);
+      const detached = detachBlock(work, blockId, { definitions });
       if (!detached.node) {
         return { ok: false, message: "这个积木已经不在画布上了。", root };
       }
@@ -438,7 +495,7 @@ export function planDrop(root, { blockId, kind, definition, targetId }) {
       return { ok: true, message: "", root, node: position.node };
     }
     const work = cloneTree(root);
-    const detached = detachBlock(work, blockId);
+    const detached = detachBlock(work, blockId, { definitions });
     if (!detached.node) {
       return { ok: false, message: "这个积木已经不在画布上了。", root };
     }
@@ -527,7 +584,7 @@ function slotToTargetId(root, slot) {
     if (!owner) {
       return null;
     }
-    return `body:${slot.ownerId}@${tailAnchorRef(owner.body?.[0])}`;
+    return `body:${slot.ownerId}@${tailAnchorRef(owner.body?.at(-1))}`;
   }
   if (slot.type === "slot") {
     return `expr:${slot.ownerId}.${slot.field}`;
@@ -547,8 +604,8 @@ export function applyDrop(root, { blockId, kind, slot, definition }) {
   return planDrop(root, { blockId, kind, definition, targetId });
 }
 
-export function removeBlock(root, blockId) {
-  const detached = detachBlock(root, blockId);
+export function removeBlock(root, blockId, options) {
+  const detached = detachBlock(root, blockId, options);
   return { root: detached.root, removed: detached.node };
 }
 
@@ -560,34 +617,38 @@ export function validateTree(root) {
   if (!definitions) {
     return { ok: true, issues, invalidIds, blockedKinds };
   }
-  walkNodes(root, (node) => {
-    const definition = definitions.get(node.kind);
-    if (!definition || !definition.runnable) {
-      blockedKinds.add(node.kind);
-      invalidIds.add(node.blockId);
-      issues.push({ blockId: node.blockId, kind: node.kind, message: "这个积木现在不能运行" });
-      return;
-    }
-    for (const field of definition.fields || []) {
-      const value = node.inputs?.[field.name];
-      if (!field.required) {
-        continue;
+  for (const head of runnableRoots(root)) {
+    walkNodes(head, (node) => {
+      const definition = definitions.get(node.kind);
+      if (!definition || !definition.runnable) {
+        blockedKinds.add(node.kind);
+        invalidIds.add(node.blockId);
+        issues.push({ blockId: node.blockId, kind: node.kind, message: "这个积木现在不能运行" });
+        return;
       }
-      if (field.valueType === "expression") {
-        if (!value) {
+      for (const field of definition.fields || []) {
+        const value = node.inputs?.[field.name];
+        if (!field.required) {
+          continue;
+        }
+        if (field.valueType === "expression" && !value) {
           invalidIds.add(node.blockId);
           issues.push({ blockId: node.blockId, kind: node.kind, message: "这个位置还需要一个值" });
+        } else if (value === "" || value == null) {
+          invalidIds.add(node.blockId);
+          issues.push({ blockId: node.blockId, kind: node.kind, message: "这个位置还需要填内容" });
         }
-      } else if (value === "" || value == null) {
-        invalidIds.add(node.blockId);
-        issues.push({ blockId: node.blockId, kind: node.kind, message: "这个位置还需要填内容" });
       }
-    }
-  });
+    });
+  }
   return { ok: issues.length === 0, issues, invalidIds, blockedKinds };
 }
 
 export function programSummary(root, definitions) {
+  if (Array.isArray(root)) {
+    const summaries = runnableRoots(root).map((head) => programSummary(head, definitions));
+    return summaries.join(" / ") || (root.length ? "积木还没有接到「当开始」" : "画布还是空的");
+  }
   if (!root) {
     return "画布还是空的";
   }
@@ -600,14 +661,13 @@ export function programSummary(root, definitions) {
     const name = definition?.displayName || "未知积木";
     if (node.kind === "control.repeat") {
       const bodyNames = [];
-      let child = node.body?.[0];
-      let innerGuard = 0;
-      while (child && innerGuard < 10) {
-        innerGuard += 1;
+      for (const child of bodyStatements(node.body)) {
         bodyNames.push(definitions.get(child.kind)?.displayName || "未知积木");
-        child = child.next;
+        if (bodyNames.length === 10) {
+          break;
+        }
       }
-      parts.push(`重复 ${node.inputs?.times ?? "?"} 次（${bodyNames.join("、") || "没有动作"}）`);
+      parts.push(`重复 ${numberInputValue(node.inputs?.times) ?? "?"} 次（${bodyNames.join("、") || "没有动作"}）`);
     } else {
       parts.push(name);
     }
@@ -619,12 +679,16 @@ export function programSummary(root, definitions) {
 export function buildProgram(root, task, courseId = "demo-loop", options = {}) {
   return {
     format: "codematekids.program",
-    formatVersion: 1,
+    formatVersion: Array.isArray(root) ? 2 : 1,
     target: { language: "python", version: "3.12" },
     courseRef: { courseId, version: options.courseVersion ?? 1, taskId: task.taskId },
-    root: root || null,
+    ...(Array.isArray(root) ? { stacks: root } : { root: root || null }),
     metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   };
+}
+
+export function programWorkspace(program) {
+  return program.formatVersion === 2 ? program.stacks : program.root;
 }
 
 export function countNodes(root) {

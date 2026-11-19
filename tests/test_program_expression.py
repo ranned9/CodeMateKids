@@ -1,10 +1,11 @@
-"""表达式字段与节点契约：无 fieldName 通过、额外字段被拒、端口缺口按现状记录。"""
+"""表达式字段、草稿保存与连接端口校验。"""
 
 from __future__ import annotations
 
 import pytest
 
 from backend.domain.program import ProgramError, validate_program
+from tests.helpers import drain, submit
 
 
 def node(block_id: str, kind: str, inputs: dict, body=None, nxt=None) -> dict:
@@ -62,16 +63,71 @@ def test_empty_required_expression_rejected() -> None:
     assert exc.value.code == "PROGRAM_SCHEMA_INVALID"
 
 
-def test_expression_node_in_next_is_currently_accepted() -> None:
-    """存量缺口：后端未校验 next 端口类型，前端由 canConnect() 保证。
+@pytest.mark.parametrize("location", ["root", "next", "body"])
+def test_expression_node_rejected_in_statement_positions(location: str) -> None:
+    stray = number("b-stray", 5)
+    root = {
+        "root": stray,
+        "next": node("b-start", "event.start", {}, nxt=stray),
+        "body": node("b-loop", "control.repeat", {"times": 2}, body=[stray]),
+    }[location]
+    with pytest.raises(ProgramError) as exc:
+        validate_program(program(root))
+    assert exc.value.code == "PROGRAM_SCHEMA_INVALID"
+    assert exc.value.block_id == "b-stray"
 
-    本用例只固定当前行为，不代表这是正确行为。
-    """
-    root = node(
-        "b-print",
-        "text.print",
-        {"value": number()},
-        nxt=node("b-stray", "value.number", {"value": 5}),
-    )
-    stats = validate_program(program(root))
-    assert stats.node_count == 3
+
+def test_empty_required_expression_is_allowed_in_project_draft() -> None:
+    root = node("b-print", "text.print", {"value": None})
+    assert validate_program(program(root), enforce_runnable=False).node_count == 1
+
+
+def test_expression_project_roundtrip_and_execution(client) -> None:
+    root = node("b-print", "text.print", {"value": None})
+    data = program(root)
+    draft = client.post("/api/v1/projects/save", json={"program": data, "courseRef": data["courseRef"]})
+    assert draft.status_code == 200
+    loaded_draft = client.post("/api/v1/projects/load", json={"fileText": draft.json()["data"]["fileText"]})
+    assert loaded_draft.status_code == 200
+    assert loaded_draft.json()["data"]["program"]["root"]["inputs"]["value"] is None
+
+    inner = node("b-inner", "value.calc", {"left": number("b-three", 3), "op": "+", "right": number("b-four", 4)})
+    root["inputs"]["value"] = node("b-outer", "value.calc", {"left": number("b-two", 2), "op": "+", "right": inner})
+    saved = client.post("/api/v1/projects/save", json={"program": data, "courseRef": data["courseRef"]})
+    loaded = client.post("/api/v1/projects/load", json={"fileText": saved.json()["data"]["fileText"]})
+    assert loaded.json()["data"]["program"]["root"] == root
+    assert client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 0}).status_code == 200
+    assert submit(client, loaded.json()["data"]["program"], "run-nested-expression").status_code == 200
+    _, result = drain(client, "run-nested-expression")
+    assert result["status"] == "completed"
+    assert result["stdout"] == "9\n"
+
+
+@pytest.mark.parametrize("value", [0, 1.5, 101])
+def test_number_block_in_repeat_uses_count_limits(value) -> None:
+    root = node("b-loop", "control.repeat", {"times": number(value=value)})
+    with pytest.raises(ProgramError) as exc:
+        validate_program(program(root), enforce_runnable=False)
+    assert exc.value.code == "PROGRAM_SCHEMA_INVALID"
+    assert exc.value.block_id == "b-num"
+
+
+def test_repeat_number_block_roundtrip_and_execution(client) -> None:
+    printer = node("b-print", "text.print", {"value": number("b-output", 7)})
+    loop = node("b-loop", "control.repeat", {"times": number("b-count", 3)}, body=[printer])
+    root = node("b-start", "event.start", {}, nxt=loop)
+    data = program(None, formatVersion=2, stacks=[{"x": 20, "y": 25, "root": root}])
+    del data["root"]
+    saved = client.post("/api/v1/projects/save", json={"program": data, "courseRef": data["courseRef"]})
+    assert saved.status_code == 200
+    loaded = client.post("/api/v1/projects/load", json={"fileText": saved.json()["data"]["fileText"]})
+    assert loaded.status_code == 200
+    reopened = loaded.json()["data"]["program"]
+    assert reopened["stacks"] == data["stacks"]
+    assert "重复 3 次" in validate_program(reopened).summary
+
+    assert client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 0}).status_code == 200
+    assert submit(client, reopened, "run-number-block-repeat").status_code == 200
+    _, result = drain(client, "run-number-block-repeat")
+    assert result["status"] == "completed"
+    assert result["stdout"] == "7\n" * 3

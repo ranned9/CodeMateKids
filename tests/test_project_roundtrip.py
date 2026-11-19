@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from backend.infra.config import BASE_DIR
+from tests.helpers import drain, node, submit
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 COURSE_REF = {"courseId": "demo-loop", "version": 1, "taskId": "main"}
@@ -48,6 +51,41 @@ def test_old_version_is_migrated(client) -> None:
     assert data["program"]["formatVersion"] == 1
     assert data["program"]["root"]["next"]["kind"] == "motion.move"
     assert data["program"]["root"]["next"]["inputs"]["steps"] == 3
+
+
+def test_positioned_stacks_save_reload_and_run_in_order(client) -> None:
+    def print_number(name: str, value: int) -> dict:
+        return node(name, "text.print", {"value": node(f"{name}-number", "value.number", {"value": value})})
+
+    program = _program()
+    del program["root"]
+    program["formatVersion"] = 2
+    program["stacks"] = [
+        {"x": 310, "y": 90, "root": node("first", "event.start", {}, nxt=print_number("first-print", 7))},
+        {"x": 40, "y": 240, "root": node("draft", "text.print", {"value": None})},
+        {"x": 30, "y": 25, "root": node("second", "event.start", {}, nxt=print_number("second-print", 9))},
+        {"x": 600, "y": 200, "root": node("loose-number", "value.number", {"value": 42})},
+    ]
+    saved = client.post("/api/v1/projects/save", json={"program": program, "courseRef": COURSE_REF})
+    assert saved.status_code == 200
+    body = saved.json()["data"]
+    assert body["formatVersion"] == 2
+    loaded = client.post("/api/v1/projects/load", json={"fileText": body["fileText"]})
+    assert loaded.status_code == 200
+    reopened = loaded.json()["data"]
+    assert reopened["migratedFrom"] is None
+    assert reopened["program"]["stacks"] == program["stacks"]
+
+    assert client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 0}).status_code == 200
+    assert submit(client, reopened["program"], "multiple-stacks").status_code == 200
+    _, result = drain(client, "multiple-stacks")
+    assert result["status"] == "completed"
+    assert result["stdout"] == "7\n9\n"
+
+    program["stacks"][1]["root"]["blockId"] = "first"
+    duplicate = client.post("/api/v1/projects/save", json={"program": program, "courseRef": COURSE_REF})
+    assert duplicate.status_code == 422
+    assert duplicate.json()["error"]["code"] == "PROGRAM_SCHEMA_INVALID"
 
 
 def test_unknown_block_preserved(client) -> None:
@@ -117,7 +155,7 @@ def test_too_many_nodes_fixture_rejected(client) -> None:
 
 def test_future_version_rejected(client) -> None:
     program = _program()
-    program["formatVersion"] = 2
+    program["formatVersion"] = 3
     text = json.dumps(program)
     response = client.post("/api/v1/projects/load", json={"fileText": text})
     assert response.status_code == 422
@@ -151,3 +189,41 @@ def test_save_requires_valid_course_ref(client) -> None:
     )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "COURSE_VERSION_UNSUPPORTED"
+
+
+@pytest.mark.parametrize("version", ["bad", "1", 1.5, True, 0, None])
+def test_save_and_load_reject_malformed_course_version(client, version) -> None:
+    program = _program()
+    program["courseRef"]["version"] = version
+    saved = client.post("/api/v1/projects/save", json={"program": program, "courseRef": program["courseRef"]})
+    loaded = client.post("/api/v1/projects/load", json={"fileText": json.dumps(program)})
+    for response in (saved, loaded):
+        assert response.status_code == 422
+        error = response.json()["error"]
+        assert error["code"] == "PROGRAM_SCHEMA_INVALID"
+        assert "正整数" in error["messageForChild"]
+
+
+def test_valid_but_unavailable_course_version_opens_read_only(client) -> None:
+    program = _program()
+    program["courseRef"]["version"] = 2
+    saved = client.post("/api/v1/projects/save", json={"program": program, "courseRef": program["courseRef"]})
+    assert saved.status_code == 409
+    assert saved.json()["error"]["code"] == "COURSE_VERSION_UNSUPPORTED"
+    loaded = client.post("/api/v1/projects/load", json={"fileText": json.dumps(program)})
+    assert loaded.status_code == 200
+    assert loaded.json()["data"]["runnable"] is False
+    assert "课程版本" in loaded.json()["data"]["readOnlyReason"]
+
+
+def test_legacy_course_version_string_is_migrated_or_rejected_cleanly(client) -> None:
+    program = json.loads((FIXTURES / "program_v0.json").read_text(encoding="utf-8"))
+    program["course"]["version"] = "1"
+    valid = client.post("/api/v1/projects/load", json={"fileText": json.dumps(program)})
+    assert valid.status_code == 200
+    assert valid.json()["data"]["program"]["courseRef"]["version"] == 1
+
+    program["course"]["version"] = "bad"
+    invalid = client.post("/api/v1/projects/load", json={"fileText": json.dumps(program)})
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "PROGRAM_MIGRATION_FAILED"

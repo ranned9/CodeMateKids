@@ -1,6 +1,8 @@
 /** 逻辑坐标布局：绘制顺序、命中区域与放置目标共用同一份几何。 */
 
-import { buildTargets } from "./targets.js";
+import { buildTargets, EXPR_SLOTS_ENABLED } from "./targets.js";
+import { bodyStatements, STACK_START, workspaceStacks } from "./model.js";
+import { workspaceOwnerId } from "./workspace.js";
 
 export const LAYOUT = {
   WIDTH: 272,
@@ -11,11 +13,11 @@ export const LAYOUT = {
   INDENT: 22,
   BODY_MIN: 34,
   BODY_PAD: 6,
-  START_X: 30,
-  START_Y: 26,
+  START_X: STACK_START.x,
+  START_Y: STACK_START.y,
 };
 
-const DEFAULT_VIEWPORT = { w: 720, h: 460, scrollY: 0 };
+const DEFAULT_VIEWPORT = { w: 720, h: 460, scrollX: 0, scrollY: 0 };
 
 /**
  * @param {any} root
@@ -32,7 +34,8 @@ export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
     order: 0,
   };
   let height = 180;
-  if (!root) {
+  const stacks = workspaceStacks(root);
+  if (!stacks.length) {
     collector.slots.push({
       type: "root",
       x: LAYOUT.START_X,
@@ -41,22 +44,25 @@ export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
       h: 64,
     });
   } else {
-    let y = LAYOUT.START_Y;
-    let node = root;
-    let guard = 0;
-    while (node && guard < 200) {
-      guard += 1;
-      y = layoutBlock(node, LAYOUT.START_X, y, LAYOUT.WIDTH, 0, "root", definitions, collector);
-      node = node.next;
+    for (const [group, stack] of stacks.entries()) {
+      let y = stack.y;
+      collector.group = group;
+      collector.order = 0;
+      for (const node of bodyStatements([stack.root])) {
+        y = layoutBlock(node, stack.x, y, LAYOUT.WIDTH, 0, workspaceOwnerId(root, stack), definitions, collector);
+      }
+      height = Math.max(height, y + 40);
     }
-    height = y + 40;
   }
 
+  let contentWidth = LAYOUT.WIDTH;
   for (const node of collector.nodes) {
+    contentWidth = Math.max(contentWidth, node.rect.x + node.rect.w);
     node.visible =
       node.rect.y + node.rect.h >= view.scrollY - 40 &&
       node.rect.y <= view.scrollY + view.h + 40 &&
-      node.rect.x <= view.w + 40;
+      node.rect.x + node.rect.w >= view.scrollX - 40 &&
+      node.rect.x <= view.scrollX + view.w + 40;
   }
 
   const drawOrder = [];
@@ -65,12 +71,15 @@ export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
       continue;
     }
     if (node.isContainer) {
-      drawOrder.push({ blockId: node.blockId, layer: "shell", depth: node.depth, order: node.order });
+      drawOrder.push({ blockId: node.blockId, layer: "shell", depth: node.depth, order: node.order, group: node.group });
     }
-    drawOrder.push({ blockId: node.blockId, layer: "block", depth: node.depth, order: node.order });
-    drawOrder.push({ blockId: node.blockId, layer: "state", depth: node.depth, order: node.order });
+    drawOrder.push({ blockId: node.blockId, layer: "block", depth: node.depth, order: node.order, group: node.group });
+    drawOrder.push({ blockId: node.blockId, layer: "state", depth: node.depth, order: node.order, group: node.group });
   }
   drawOrder.sort((a, b) => {
+    if (a.group !== b.group) {
+      return a.group - b.group;
+    }
     const rank = { shell: 0, block: 1, state: 2 };
     if (rank[a.layer] !== rank[b.layer]) {
       return rank[a.layer] - rank[b.layer];
@@ -89,15 +98,16 @@ export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
     blocks: collector.blocks,
     slots: collector.slots,
     height,
-    contentWidth: LAYOUT.WIDTH,
+    contentWidth,
     viewport: view,
   };
-  layout.targets = buildTargets(layout, { exprSlotsEnabled: false });
+  layout.targets = buildTargets(layout, { exprSlotsEnabled: EXPR_SLOTS_ENABLED });
   return layout;
 }
 
 function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) {
   const definition = definitions.get(node.kind);
+  const parentBlockId = depth === 0 ? null : ownerId.replace(/^expr:/, "");
   const order = collector.order;
   collector.order += 1;
 
@@ -108,12 +118,13 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
       kind: node.kind,
       depth,
       ownerId,
+      group: collector.group,
       rect: { x, y, w: width, h: unknownHeight },
       layer: "block",
       order,
       visible: true,
       isContainer: false,
-      parentBlockId: ownerId === "root" ? null : ownerId,
+      parentBlockId,
       fields: [],
       portMarks: [],
       unknown: true,
@@ -145,31 +156,40 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
   const hasBody = ports.some((port) => port.portType === "statement-body");
   const hasNext = ports.some((port) => port.portType === "statement-next");
   const fieldDefinitions = definition.fields || [];
-  const headerH = LAYOUT.HEADER + fieldDefinitions.length * LAYOUT.FIELD;
+  let fieldY = y + LAYOUT.HEADER;
   const fields = [];
 
-  fieldDefinitions.forEach((field, index) => {
-    const fieldY = y + LAYOUT.HEADER + index * LAYOUT.FIELD + 2;
+  for (const field of fieldDefinitions) {
+    const value = node.inputs?.[field.name];
+    const nestedValue = Boolean(value && typeof value === "object");
+    const inlineNumber = (node.kind === "value.number" && field.name === "value")
+      || (field.acceptsNumberBlock && !nestedValue);
     const rect = {
-      x: field.valueType === "expression" ? x + 84 : x + 12,
-      y: fieldY,
-      w: field.valueType === "expression" ? width - 96 : width - 24,
-      h: LAYOUT.FIELD - 6,
+      x: x + 12,
+      y: fieldY + 2,
+      w: width - 24,
+      h: inlineNumber ? 30 : LAYOUT.FIELD - 6,
     };
-    fields.push({ ...field, rect });
-    if (field.valueType === "expression") {
-      collector.slots.push({
-        type: "slot",
-        ownerId: node.blockId,
-        field: field.name,
-        x: rect.x,
-        y: rect.y,
-        w: rect.w,
-        h: rect.h,
-        depth,
-      });
+    if (field.valueType === "expression" || (field.acceptsNumberBlock && nestedValue)) {
+      const inset = Math.min(12, Math.max(0, (width - 120) / 2));
+      rect.x = x + inset;
+      rect.w = width - 2 * inset;
+      rect.y = fieldY + 17;
+      rect.h = 23;
+      if (nestedValue) {
+        const childBottom = layoutBlock(
+          value, rect.x, rect.y, rect.w, depth + 1, `expr:${node.blockId}`, definitions, collector,
+        );
+        rect.h = childBottom - LAYOUT.GAP - rect.y;
+      }
     }
-  });
+    if (field.valueType === "expression" || field.acceptsNumberBlock) {
+      collector.slots.push({ type: "slot", ownerId: node.blockId, field: field.name, ...rect, depth });
+    }
+    fields.push({ ...field, rect, nestedValue, inlineNumber });
+    fieldY = rect.y + rect.h + 4;
+  }
+  const headerH = fieldY - y;
 
   let bodyBox = null;
   let contentY = y + headerH;
@@ -178,12 +198,8 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
     const childWidth = Math.max(120, width - LAYOUT.INDENT - 4);
     const childStartY = y + headerH + LAYOUT.BODY_PAD;
     let childY = childStartY;
-    let child = node.body?.[0];
-    let childGuard = 0;
-    while (child && childGuard < 100) {
-      childGuard += 1;
+    for (const child of bodyStatements(node.body)) {
       childY = layoutBlock(child, childX, childY, childWidth, depth + 1, node.blockId, definitions, collector);
-      child = child.next;
     }
     const bodyHeight = Math.max(LAYOUT.BODY_MIN, childY - childStartY);
     contentY = childStartY + bodyHeight;
@@ -232,13 +248,17 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
     kind: node.kind,
     depth,
     ownerId,
+    group: collector.group,
+    outputType: definition.outputType,
     rect: { x, y, w: width, h: height },
     layer: "block",
     order,
     visible: true,
     isContainer: hasBody,
-    parentBlockId: ownerId === "root" ? null : ownerId,
+    parentBlockId,
     fields,
+    inputs: node.inputs,
+    hasBodyChildren: Boolean(node.body?.length),
     portMarks: ports.map((port) => ({ portType: port.portType })),
     unknown: false,
   });
@@ -310,6 +330,9 @@ export function pickNode(layout, point) {
     return null;
   }
   candidates.sort((a, b) => {
+    if (a.group !== b.group) {
+      return b.group - a.group;
+    }
     if (b.depth !== a.depth) {
       return b.depth - a.depth;
     }

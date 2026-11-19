@@ -1,8 +1,6 @@
-/** 工具箱：类别筛选 + 只呈现当前画布确实能放下的积木。 */
+/** 工具箱：积木分类与添加。 */
 
-import { emptyLayoutModel, hasPlaceableTarget } from "../editor/targets.js";
-
-const CATEGORY_ORDER = ["开始", "动作", "循环", "显示", "其他"];
+const CATEGORY_ORDER = ["开始", "动作", "循环", "显示", "运算", "其他"];
 let activeCategory = "全部";
 
 function categoryOf(kind) {
@@ -10,6 +8,7 @@ function categoryOf(kind) {
   if (kind.startsWith("motion.")) return "动作";
   if (kind.startsWith("control.")) return "循环";
   if (kind.startsWith("look.") || kind.startsWith("text.")) return "显示";
+  if (kind.startsWith("value.")) return "运算";
   return "其他";
 }
 
@@ -18,12 +17,11 @@ export function renderToolbox(container, state, callbacks) {
     return;
   }
   container.innerHTML = "";
-  const layout = callbacks.getLayout?.() || emptyLayoutModel({ w: 720, h: 460, scrollY: 0 });
   const task = state.tasks.get(state.activeTaskId);
   const allowed = new Set(task?.allowedBlockKinds || []);
   const heading = document.createElement("p");
   heading.className = "muted";
-  heading.textContent = "按住一个积木，拖到画布上。";
+  heading.textContent = "点一下或拖到画布添加。不要的积木可以拖回这里。";
   container.appendChild(heading);
 
   const definitions = [];
@@ -33,12 +31,6 @@ export function renderToolbox(container, state, callbacks) {
     }
     definitions.push(definition);
   }
-  const placeable = new Map(
-    definitions.map((definition) => [
-      definition.kind,
-      hasPlaceableTarget(layout, definition, state.schema),
-    ]),
-  );
   const categories = ["全部"];
   for (const definition of definitions) {
     const category = categoryOf(definition.kind);
@@ -74,8 +66,7 @@ export function renderToolbox(container, state, callbacks) {
       list.appendChild(empty);
     }
     for (const definition of visible) {
-      const mode = placeable.get(definition.kind) ? "normal" : "readonly";
-      list.appendChild(buildItem(definition, state, callbacks, mode));
+      list.appendChild(buildItem(definition, callbacks));
     }
   }
 
@@ -106,49 +97,44 @@ export function renderToolbox(container, state, callbacks) {
     divider.textContent = "还有一些积木暂时不能运行：";
     container.appendChild(divider);
     for (const rejected of state.rejectedKinds) {
-      container.appendChild(buildItem(rejected, state, callbacks, "blocked"));
+      container.appendChild(buildItem(rejected, callbacks, true));
     }
   }
 }
 
-function buildItem(definition, state, callbacks, mode) {
+function buildItem(definition, callbacks, blocked = false) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `toolbox-item${mode === "normal" ? "" : " blocked"}${mode === "readonly" ? " readonly" : ""}`;
+  button.className = blocked ? "toolbox-item blocked" : "toolbox-item";
   button.dataset.kind = definition.kind;
-  const label =
-    mode === "blocked"
-      ? `${definition.displayName}，不能运行。`
-      : mode === "readonly"
-        ? `${definition.displayName}，暂时没有能放的位置。`
-        : `${definition.displayName}，可拖动。按 Enter 也可以添加。`;
+  const label = blocked
+    ? `${definition.displayName}，不能运行。`
+    : `${definition.displayName}，可拖动，点击或按 Enter 添加。`;
   button.setAttribute("aria-label", label);
   const strong = document.createElement("strong");
   strong.textContent = definition.displayName;
   const small = document.createElement("small");
-  small.textContent =
-    mode === "readonly" ? "这个积木暂时没有能放的位置" : definition.blockedHint || "";
+  small.textContent = definition.blockedHint || "";
   button.appendChild(strong);
   button.appendChild(small);
-  if (mode === "normal") {
+  if (!blocked) {
     button.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
       event.preventDefault();
       callbacks.onDragStart(definition.kind, event, button);
     });
     button.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        callbacks.onKeyboardAdd?.(definition.kind);
+        if (!event.repeat) {
+          callbacks.onAdd?.(definition.kind);
+        }
       }
     });
   } else {
-    button.addEventListener("click", () => {
-      if (mode === "blocked") {
-        callbacks.onBlockedClick?.(definition);
-      } else {
-        callbacks.onUnplaceableClick?.(definition);
-      }
-    });
+    button.addEventListener("click", () => callbacks.onBlockedClick?.(definition));
   }
   return button;
 }

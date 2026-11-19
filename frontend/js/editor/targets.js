@@ -1,12 +1,12 @@
 /** 放置目标解析：稳定目标 ID、矩形命中带、附近吸附与端口映射。 */
 
-import { canConnect, portTypeOfTarget } from "./connector.js";
+import { canConnectToTarget, portTypeOfTarget } from "./connector.js";
 
 export const HIT_PAD = 10;
 export const SNAP_X = 40;
 export const SNAP_Y_MAX = 56;
 export const INSERT_BAND_MIN = 20;
-export const EXPR_SLOTS_ENABLED = false;
+export const EXPR_SLOTS_ENABLED = true;
 
 const EMPTY_ROOT = { x: 30, y: 26, w: 272, h: 64 };
 const EMPTY_HEIGHT = 180;
@@ -79,28 +79,26 @@ export function buildTargets(layout, { exprSlotsEnabled = false } = {}) {
     return targets;
   }
 
-  const rootNodes = nodes.filter((node) => node.ownerId === "root").sort((a, b) => a.order - b.order);
-  const firstRoot = rootNodes[0];
-  if (firstRoot) {
-    targets.push({
-      id: "root@start",
-      containerRef: "root",
-      anchorRef: "start",
-      rect: bandRect(firstRoot, firstRoot.rect.y - INSERT_BAND_MIN, firstRoot.rect.w),
-      visual: lineVisual(firstRoot.rect.x + 8, firstRoot.rect.y - 2, firstRoot.rect.w - 16),
-      portType: "statement-next",
-      depth: 0,
-      priority: 0,
-      rank: 0,
-      visible: firstRoot.visible,
-    });
-  }
-
-  for (const node of rootNodes) {
+  for (const node of nodes.filter((item) => item.depth === 0 && item.outputType !== "expression")) {
+    const owner = node.ownerId;
+    if (node.order === 0 && (owner === "root" || node.kind !== "event.start")) {
+      targets.push({
+        id: targetIdOf(owner, "start"),
+        containerRef: owner,
+        anchorRef: "start",
+        rect: bandRect(node, node.rect.y - INSERT_BAND_MIN, node.rect.w),
+        visual: lineVisual(node.rect.x + 8, node.rect.y - 2, node.rect.w - 16),
+        portType: "statement-next",
+        depth: 0,
+        priority: 0,
+        rank: 0,
+        visible: node.visible,
+      });
+    }
     const afterY = node.rect.y + node.rect.h;
     targets.push({
-      id: `root@after:${node.blockId}`,
-      containerRef: "root",
+      id: targetIdOf(owner, `after:${node.blockId}`),
+      containerRef: owner,
       anchorRef: `after:${node.blockId}`,
       rect: bandRect(node, afterY, node.rect.w),
       visual: lineVisual(node.rect.x + 8, afterY + 4, node.rect.w - 16),
@@ -156,7 +154,7 @@ export function buildTargets(layout, { exprSlotsEnabled = false } = {}) {
   if (exprSlotsEnabled) {
     for (const node of nodes) {
       for (const field of node.fields || []) {
-        if (field.valueType !== "expression") {
+        if (field.valueType !== "expression" && !field.acceptsNumberBlock) {
           continue;
         }
         targets.push({
@@ -172,6 +170,7 @@ export function buildTargets(layout, { exprSlotsEnabled = false } = {}) {
           visible: node.visible,
           ownerId: node.blockId,
           field: field.name,
+          numberRange: field.acceptsNumberBlock ? field.range : null,
         });
       }
     }
@@ -191,7 +190,7 @@ export function normalizeTargetId(targetId) {
   const value = targetId.trim();
   if (value.startsWith("expr:")) {
     const body = value.slice(5);
-    const dot = body.indexOf(".");
+    const dot = body.lastIndexOf(".");
     if (dot <= 0 || dot === body.length - 1) {
       return null;
     }
@@ -211,14 +210,14 @@ export function normalizeTargetId(targetId) {
   if (anchorRef !== "start" && !anchorRef.startsWith("after:")) {
     return null;
   }
-  if (containerRef !== "root" && !containerRef.startsWith("body:")) {
+  if (containerRef !== "root" && !/^(body|stack):.+/.test(containerRef)) {
     return null;
   }
-  const portType = containerRef === "root" ? "statement-next" : "statement-body";
+  const portType = portTypeOfTarget(containerRef);
   return { containerRef, anchorRef, portType };
 }
 
-function pointInRect(point, rect, pad = 0) {
+export function pointInRect(point, rect, pad = 0) {
   return (
     point.x >= rect.x - pad &&
     point.x <= rect.x + rect.w + pad &&
@@ -234,32 +233,36 @@ function gapOf(point, rect) {
 }
 
 function insideCanvas(point, viewport) {
+  const scrollX = viewport?.scrollX || 0;
   const scrollY = viewport?.scrollY || 0;
   const w = viewport?.w || 720;
   const h = viewport?.h || 460;
-  return point.x >= 0 && point.x <= w && point.y >= scrollY && point.y <= scrollY + h;
+  return point.x >= scrollX && point.x <= scrollX + w && point.y >= scrollY && point.y <= scrollY + h;
 }
 
 /**
  * @param {any} layout
  * @param {{x:number,y:number}} point
- * @param {{definition?:any,schema?:any,movingBlockId?:string|null,viewport?:any,exprSlotsEnabled?:boolean,isSelfNest?:(containerRef:string)=>boolean}} ctx
+ * @param {{definition?:any,schema?:any,numberValue?:number,movingBlockId?:string|null,viewport?:any,isSelfNest?:(containerRef:string)=>boolean,allowTarget?:(target:any)=>boolean}} ctx
  */
 export function resolveDropTarget(layout, point, ctx = {}) {
   const viewport = ctx.viewport || layout.viewport || { w: 720, h: 460, scrollY: 0 };
   if (!insideCanvas(point, viewport)) {
     return { valid: false, reason: "OUTSIDE_CANVAS", message: "", target: null, portType: null };
   }
-  const targets = (layout.targets || []).filter((target) => target.visible);
+  const targets = (layout.targets || []).filter((target) => target.visible && (!ctx.allowTarget || ctx.allowTarget(target)));
 
   let candidates = targets
-    .filter((target) => pointInRect(point, target.rect, HIT_PAD))
+    .filter((target) => pointInRect(point, target.rect, target.numberRange ? 0 : HIT_PAD))
     .map((target) => ({ target, ...gapOf(point, target.rect) }));
 
+  if (candidates.length === 0 && !layout.nodes?.length && targets[0]?.id === "root@start") {
+    candidates = [{ target: targets[0], distance: 0 }];
+  }
   if (candidates.length === 0) {
     candidates = targets
       .map((target) => ({ target, ...gapOf(point, target.rect) }))
-      .filter((item) => item.dx <= SNAP_X && item.dy <= SNAP_Y_MAX);
+      .filter((item) => item.target.portType !== "expression" && item.dx <= SNAP_X && item.dy <= SNAP_Y_MAX);
   }
 
   if (candidates.length === 0) {
@@ -273,6 +276,12 @@ export function resolveDropTarget(layout, point, ctx = {}) {
   }
 
   candidates.sort((a, b) => {
+    // 空间重叠时优先显示可连接的位置，表达式仍不能落入语句链。
+    const aFits = canConnectToTarget(ctx.schema, ctx.definition, a.target, ctx.numberValue).ok;
+    const bFits = canConnectToTarget(ctx.schema, ctx.definition, b.target, ctx.numberValue).ok;
+    if (aFits !== bFits) {
+      return bFits ? 1 : -1;
+    }
     if (b.target.depth !== a.target.depth) {
       return b.target.depth - a.target.depth;
     }
@@ -284,7 +293,7 @@ export function resolveDropTarget(layout, point, ctx = {}) {
 
   const target = candidates[0].target;
   const portType = target.portType || portTypeOfTarget(target.id);
-  const connection = canConnect(ctx.schema, ctx.definition, portType);
+  const connection = canConnectToTarget(ctx.schema, ctx.definition, target, ctx.numberValue);
   if (!connection.ok) {
     return {
       valid: false,
@@ -323,7 +332,7 @@ export function hasPlaceableTarget(layout, definition, schema) {
     return false;
   }
   for (const target of layout?.targets || []) {
-    const connection = canConnect(schema, definition, target.portType || portTypeOfTarget(target.id));
+    const connection = canConnectToTarget(schema, definition, target);
     if (connection.ok) {
       return true;
     }

@@ -7,6 +7,7 @@ import time
 
 from backend.runner import supervisor as supervisor_mod
 from backend.runner import worker as worker_mod
+from backend.domain.program import validate_program
 from backend.runner.compiler import CompiledProgram, TARGET_FILENAME
 from backend.runner.supervisor import minimal_env, run_program
 
@@ -153,6 +154,26 @@ def test_same_program_is_deterministic() -> None:
     signature = [(event["kind"], event["blockId"]) for event in first["events"]]
     again = [(event["kind"], event["blockId"]) for event in second["events"]]
     assert signature == again
+
+
+def test_repeat_executes_every_body_chain_in_order() -> None:
+    data = simple_program()
+    repeat = data["root"]["next"]
+    repeat["body"][0]["next"] = node("b-turn", "motion.turn", {"degrees": 90})
+    repeat["body"].append(
+        node("b-second-move", "motion.move", {"steps": 3}, nxt=node("b-say", "look.say", {"text": "完成"}))
+    )
+
+    assert "向前走、转个弯、向前走、说句话" in validate_program(data).summary
+    result = _run(data)
+    assert result["status"] == "completed"
+    stage = result["objects"][0]
+    assert (stage["x"], stage["y"], stage["steps"], stage["moves"], stage["said"]) == (-2, 4, 8, 4, "完成")
+    entered = [event["blockId"] for event in result["events"] if event["kind"] == "block_enter"]
+    assert [block_id for block_id in entered if block_id in {"b-move", "b-turn", "b-second-move", "b-say"}] == [
+        "b-move", "b-turn", "b-second-move", "b-say",
+        "b-move", "b-turn", "b-second-move", "b-say",
+    ]
 
 
 def test_recursion_limit_maps_to_resource(monkeypatch) -> None:

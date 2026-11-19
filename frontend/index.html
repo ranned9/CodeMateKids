@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CodeMateKids · 小小编程课堂</title>
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
   <header class="app-header">
@@ -39,21 +39,6 @@
   <p class="viewport-notice" role="status">建议窗口至少 1024×768</p>
 
   <main class="workspace" id="workspace">
-    <aside class="panel course-panel" id="course-panel" aria-label="课程区">
-      <h2 class="panel-title">课程区</h2>
-      <div id="course-content">
-        <p class="muted">正在读取课程…</p>
-      </div>
-      <div class="prediction-box" id="prediction-box">
-        <label for="prediction-input" id="prediction-label">先猜一猜角色会动几次？</label>
-        <div class="prediction-row">
-          <input type="number" id="prediction-input" min="0" max="1000" inputmode="numeric" value="">
-          <button type="button" class="primary-button" id="prediction-submit">提交预测</button>
-        </div>
-        <p class="hint-text" id="prediction-feedback"></p>
-      </div>
-    </aside>
-
     <section class="panel editor-panel" aria-label="积木工作区">
       <div class="toolbox" id="toolbox" aria-label="工具箱">
         <h2 class="panel-title">工具箱</h2>
@@ -62,7 +47,7 @@
       <div class="canvas-wrap">
         <div class="canvas-toolbar">
           <span class="canvas-title" id="canvas-title">积木画布</span>
-          <span class="canvas-tip">拖动积木，靠近插口会亮起来</span>
+          <span class="canvas-tip">拖到空白处另起一组，靠近插口可以接上</span>
         </div>
         <div class="canvas-stage">
           <canvas id="block-canvas" width="720" height="460" aria-label="积木画布"></canvas>
@@ -77,6 +62,21 @@
         </div>
       </div>
     </section>
+
+    <aside class="panel course-panel" id="course-panel" aria-label="课程区">
+      <h2 class="panel-title">课程区</h2>
+      <div id="course-content">
+        <p class="muted">正在读取课程…</p>
+      </div>
+      <div class="prediction-box" id="prediction-box">
+        <label for="prediction-input" id="prediction-label">先猜一猜角色会动几次？</label>
+        <div class="prediction-row">
+          <input type="number" id="prediction-input" min="0" max="1000" inputmode="numeric" value="">
+          <button type="button" class="primary-button" id="prediction-submit">提交预测</button>
+        </div>
+        <p class="hint-text" id="prediction-feedback"></p>
+      </div>
+    </aside>
 
     <section class="panel control-panel" aria-label="运行控制">
       <h2 class="panel-title">运行控制</h2>
@@ -162,6 +162,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/js/main.js"></script>
+  <script type="module" src="/assets/js/main.js"></script>
 </body>
 </html>

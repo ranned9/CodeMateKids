@@ -69,3 +69,13 @@
 
 - 白名单新增 `stderrSummary`（长度 ≤160，脱敏后仅进入开发诊断日志；`result.stderr` 仍为空字符串，前端不可见）。
 - 日志仍不记录 `cancelToken`、儿童输入全文与源码全文。
+
+## 8. 当前作品与程序校验
+
+- `control.repeat.inputs.times` 可存放整数或 `value.number` 积木。编辑器支持直接填写次数或拖入数字积木，两种方式都要求次数为 `1–100` 的整数。移走数字积木后恢复默认次数。
+- 循环体按 `body` 数组顺序处理每条语句链，各链自头部沿 `next` 执行。
+- 当前作品格式的 `courseRef.version` 必须是正整数。格式不合法时，保存和打开返回 `422 PROGRAM_SCHEMA_INVALID`。课程版本格式合法但本机缺失时，保存返回 `409 COURSE_VERSION_UNSUPPORTED`，打开返回只读结果和原因。
+- 旧版作品迁移时可将整数版本字符串转换为整数。无法转换的旧版版本字符串返回 `422 PROGRAM_MIGRATION_FAILED`。
+- 允许作品草稿保存空的必填表达式槽。运行时仍要求填满这些槽，语句链和语句体拒绝表达式节点。
+- 保存、加载和运行接受作品格式 v1 的单链 `root` 以及 [v2 的 `stacks`](../schemas/program.v2.json)。v2 中每组保存整数坐标 `x`、`y` 和积木树 `root`，积木编号在整个作品内唯一。
+- v2 按 `stacks` 顺序执行以 `event.start` 开头的脚本，独立草稿也可保存。由旧作品转换的无开始积木脚本可使用 `legacy: true` 延续原来的运行行为。

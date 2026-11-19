@@ -102,7 +102,8 @@
         {
           "name": "times",
           "label": "次数",
-          "valueType": "number",
+          "valueType": "integer",
+          "acceptsNumberBlock": true,
           "required": true,
           "defaultValue": 4,
           "range": {"min": 1, "max": 100}
@@ -110,7 +111,7 @@
       ],
       "scopeRule": "none",
       "targetAnchor": "python.for_statement",
-      "blockedHint": "把要重复的动作放进循环的肚子里。",
+      "blockedHint": "把动作放进循环里，点「次数」或拖入数字来改次数。",
       "runnable": true,
       "testCaseRefs": ["TC-LOOP-01", "TC-LOOP-NEG-BODY"]
     },

@@ -8,7 +8,7 @@ from typing import Any
 
 from backend.domain.blocks import load_blocks
 from backend.domain.migrate import MigrationError, migrate_program
-from backend.domain.program import MAX_BYTES, MAX_JSON_DEPTH, ProgramError, json_depth, validate_program
+from backend.domain.program import MAX_BYTES, ProgramError, json_depth, program_json_depth_limit, program_roots, validate_program
 from backend.infra.config import Settings
 from backend.infra.errors import ApiError
 from backend.service.course import load_course
@@ -63,7 +63,7 @@ def _validate_course_ref(settings: Settings, course_ref: Any) -> str:
         return "作品缺少课程引用"
     if course_ref.get("courseId") != bundle.course["courseId"]:
         return "这个作品对应的课程不在这台电脑上"
-    if int(course_ref.get("version", 0)) != int(bundle.course["version"]):
+    if course_ref["version"] != int(bundle.course["version"]):
         return "这个作品对应的课程版本不在本机"
     if str(course_ref.get("taskId", "")) not in bundle.tasks:
         return "这个作品对应的任务不在本机"
@@ -76,11 +76,8 @@ def save_project(settings: Settings, program: Any, course_ref: Any) -> dict[str,
     forbidden = _scan_forbidden(program)
     if forbidden:
         raise ApiError("PROGRAM_SCHEMA_INVALID", message="作品里不能放可执行代码或个人信息。")
-    read_only_reason = _validate_course_ref(settings, course_ref or program.get("courseRef"))
-    if read_only_reason:
-        raise ApiError("COURSE_VERSION_UNSUPPORTED", message=read_only_reason)
     program = dict(program)
-    program["courseRef"] = dict(course_ref or program.get("courseRef") or {})
+    program["courseRef"] = course_ref or program.get("courseRef")
     now = _now()
     metadata = dict(program.get("metadata") or {})
     metadata["createdAt"] = now
@@ -90,10 +87,13 @@ def save_project(settings: Settings, program: Any, course_ref: Any) -> dict[str,
         validate_program(program, enforce_runnable=False)
     except ProgramError as exc:
         raise ApiError(exc.code, exc.block_id, exc.message) from exc
+    read_only_reason = _validate_course_ref(settings, program["courseRef"])
+    if read_only_reason:
+        raise ApiError("COURSE_VERSION_UNSUPPORTED", message=read_only_reason)
     file_text = json.dumps(program, ensure_ascii=False, indent=2)
     task_id = str((program.get("courseRef") or {}).get("taskId", "task"))
     return {
-        "formatVersion": 1,
+        "formatVersion": program["formatVersion"],
         "fileName": f"codematekids-{task_id}.json",
         "fileText": file_text,
         "program": program,
@@ -113,7 +113,7 @@ def load_project(settings: Settings, file_text: str) -> dict[str, Any]:
         raise ApiError("PROGRAM_SCHEMA_INVALID", message="这个文件不是我们的项目文件。")
     if "formatVersion" not in raw and "format" not in raw:
         raise ApiError("PROGRAM_SCHEMA_INVALID", message="这个文件不是我们的项目文件。")
-    if json_depth(raw) > MAX_JSON_DEPTH:
+    if json_depth(raw) > program_json_depth_limit(raw):
         raise ApiError("PROGRAM_TOO_LARGE", message="文件层级太深啦。")
     forbidden = _scan_forbidden(raw)
     if forbidden:
@@ -134,17 +134,24 @@ def load_project(settings: Settings, file_text: str) -> dict[str, Any]:
 
     registry = load_blocks()
     unknown_blocks: list[dict[str, Any]] = []
-    _mark_unknown(program.get("root"), registry, unknown_blocks)
+    has_active_unknown = False
+    active_ids = {root["blockId"] for root in program_roots(program, runnable_only=True)}
+    for root in program_roots(program):
+        collected: list[dict[str, Any]] = []
+        _mark_unknown(root, registry, collected)
+        unknown_blocks.extend(collected)
+        if collected and root["blockId"] in active_ids:
+            has_active_unknown = True
 
     now = _now()
     program["metadata"] = {"createdAt": now, "updatedAt": now}
     read_only_reason = _validate_course_ref(settings, program.get("courseRef"))
     return {
         "program": program,
-        "migratedFrom": original_version if original_version != 1 else None,
+        "migratedFrom": original_version if original_version != program["formatVersion"] else None,
         "unknownBlocks": unknown_blocks,
-        "runnable": not read_only_reason and not unknown_blocks,
-        "readOnlyReason": read_only_reason or ("有积木还不能运行" if unknown_blocks else ""),
+        "runnable": not read_only_reason and not has_active_unknown,
+        "readOnlyReason": read_only_reason or ("有积木还不能运行" if has_active_unknown else ""),
     }
 
 

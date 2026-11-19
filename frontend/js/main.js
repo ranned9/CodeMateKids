@@ -1,6 +1,6 @@
-/** 应用入口：装配视图、统一载入、异步归属与内容版本刷新。 */
+/** 应用入口：装配编辑器、视图与工作流。 */
 import { API } from "./api.js";
-import { cloneTree, buildProgram } from "./editor/model.js";
+import { cloneTree, programWorkspace } from "./editor/model.js";
 import { History } from "./editor/undo.js";
 import { captureContext, isCurrentContext } from "./core/viewContext.js";
 import { notify, setPhase, state, subscribe } from "./state.js";
@@ -8,10 +8,12 @@ import { applyArtifact } from "./views/artifact.js";
 import { EditorView } from "./views/canvas.js";
 import { renderCourse, renderPrediction } from "./views/course.js";
 import { createRunner } from "./views/runner.js";
-import { renderStartup, updateModeBadge } from "./views/startup.js";
+import { updateModeBadge } from "./views/startup.js";
 import { showSummary } from "./views/summary.js";
 import { renderToolbox } from "./views/toolbox.js";
 import { createTutor } from "./views/tutor.js";
+import { createCourseWorkflow } from "./workflows/course.js";
+import { createProjectWorkflow } from "./workflows/projects.js";
 
 window.__cmkApi = API;
 window.__cmkState = state;
@@ -22,6 +24,7 @@ let editor = null;
 let history = null;
 let runner = null;
 let tutor = null;
+let projects = null;
 let toastTimer = null;
 
 function collectDom() {
@@ -42,6 +45,7 @@ function collectDom() {
     "prediction-input",
     "prediction-submit",
     "prediction-feedback",
+    "toolbox",
     "toolbox-list",
     "block-canvas",
     "canvas-empty",
@@ -113,13 +117,7 @@ function renderAll(reason = "all") {
     onSelectTask: (taskId) => switchTask(taskId),
   });
   renderPrediction(state, predictionElements(), {});
-  renderToolbox(dom["toolbox-list"], state, {
-    getLayout: () => editor?.layout,
-    onDragStart: (kind, event, source) => editor?.dnd.startToolboxDrag(kind, event, source),
-    onKeyboardAdd: (kind) => editor?.insertFromKeyboard(kind),
-    onBlockedClick: (definition) => toast(definition.blockedHint || "这个积木暂时不能运行。"),
-    onUnplaceableClick: () => toast("这个积木暂时没有能放的位置。"),
-  });
+  renderEditorToolbox();
   updateModeBadge(state.mode);
   runner?.updateControls();
   if (reason === "variant-completed") {
@@ -127,7 +125,23 @@ function renderAll(reason = "all") {
   }
 }
 
-function applyTask(taskId, options = {}) {
+function renderEditorToolbox() {
+  renderToolbox(dom["toolbox-list"], state, {
+    onDragStart: (kind, event, source) => editor?.dnd.startToolboxDrag(kind, event, source),
+    onAdd: (kind) => editor?.insertFromToolbox(kind),
+    onBlockedClick: (definition) => toast(definition.blockedHint || "这个积木暂时不能运行。"),
+  });
+}
+
+function installArtifact(descriptor) {
+  applyArtifact({ state, descriptor, dom, editor, renderAll, runner });
+}
+
+function leaveRunContext(reason) {
+  return runner?.leaveRunContext({ reason });
+}
+
+function applyTask(taskId) {
   const task = state.tasks.get(taskId);
   if (!task) {
     toast("这个任务暂时打不开。", true);
@@ -137,62 +151,15 @@ function applyTask(taskId, options = {}) {
     toast(task.blockedReason || "这个任务需要的积木暂不支持。", true);
     return false;
   }
-  applyArtifact({
-    state,
-    descriptor: {
-      source: "task",
-      taskId,
-      root: cloneTree(task.initialProgram.root),
-      readonly: false,
-      readonlyReason: "",
-    },
-    dom,
-    editor,
-    renderAll,
-    runner,
+  installArtifact({
+    source: "task",
+    taskId,
+    root: cloneTree(programWorkspace(task.initialProgram)),
+    readonly: false,
+    readonlyReason: "",
   });
   setPhase("editing");
   state.dirty = false;
-  return true;
-}
-
-function loadTask(taskId, options = {}) {
-  return applyTask(taskId, options);
-}
-
-async function askUnsavedChoice() {
-  if (!state.dirty) {
-    return "discard";
-  }
-  const dialog = dom["confirm-dialog"];
-  if (!dialog || typeof dialog.showModal !== "function") {
-    return window.confirm("有还没保存的修改，继续会丢掉它们。继续吗？") ? "discard" : "cancel";
-  }
-  if (dom["confirm-title"]) {
-    dom["confirm-title"].textContent = "还没保存的修改";
-  }
-  if (dom["confirm-text"]) {
-    dom["confirm-text"].textContent = "要保存这个作品，还是放弃修改？";
-  }
-  return new Promise((resolve) => {
-    const onClose = () => {
-      dialog.removeEventListener("close", onClose);
-      resolve(dialog.returnValue || "cancel");
-    };
-    dialog.addEventListener("close", onClose);
-    dialog.returnValue = "cancel";
-    dialog.showModal();
-  });
-}
-
-async function confirmLeaveDirty() {
-  const choice = await askUnsavedChoice();
-  if (choice === "cancel") {
-    return false;
-  }
-  if (choice === "save") {
-    return await saveProject();
-  }
   return true;
 }
 
@@ -204,12 +171,10 @@ async function switchTask(taskId) {
     toast("这个任务暂时打不开。", true);
     return;
   }
-  if (!(await confirmLeaveDirty())) {
+  if (!(await projects.confirmLeaveDirty())) {
     return;
   }
-  if (runner) {
-    await runner.leaveRunContext({ reason: "switch" });
-  }
+  await leaveRunContext("switch");
   applyTask(taskId);
   toast(`已切换到：${state.tasks.get(taskId)?.title || taskId}`);
 }
@@ -246,59 +211,6 @@ async function submitPrediction() {
   }
 }
 
-async function refreshStartup() {
-  try {
-    const data = await API.startupRefresh();
-    const previousVersion = state.contentVersion;
-    state.startup = data;
-    state.mode = data.tutorMode;
-    renderStartup(data, startupElements(), {
-      onRetry: refreshStartup,
-      onEnter: () => {
-        dom["startup-banner"].hidden = true;
-      },
-    });
-    runner?.updateControls();
-
-    if (data.contentVersion) {
-      state.contentVersion = data.contentVersion;
-    }
-    if (data.contentVersion && previousVersion && data.contentVersion !== previousVersion) {
-      if (!(await confirmLeaveDirty())) {
-        return;
-      }
-      if (runner) {
-        await runner.leaveRunContext({ reason: "content" });
-      }
-      await reloadCourseForContent();
-    }
-  } catch (error) {
-    toast(error.messageForChild || "重新检查没有成功。", true);
-  }
-}
-
-async function reloadCourseForContent() {
-  try {
-    const course = await API.course();
-    state.course = course;
-    state.tasks = new Map(course.tasks.map((task) => [task.taskId, task]));
-    state.variantAvailable = Boolean(course.tasks.find((task) => task.taskId === "variant")?.enterable);
-    const current = state.tasks.get(state.activeTaskId);
-    const target = current && current.enterable
-      ? state.activeTaskId
-      : Array.from(state.tasks.values()).find((task) => task.enterable)?.taskId;
-    if (target) {
-      applyTask(target, { reason: "content" });
-      toast("课程内容已更新，界面已同步。");
-    } else {
-      renderAll("content");
-      toast("课程内容已更新，但当前没有可运行的任务。", true);
-    }
-  } catch (error) {
-    toast(error.messageForChild || "课程内容刷新失败。", true);
-  }
-}
-
 function startupElements() {
   return {
     banner: dom["startup-banner"],
@@ -313,83 +225,6 @@ function startupElements() {
   };
 }
 
-function downloadProject(payload) {
-  const blob = new Blob([payload.fileText], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = payload.fileName || "codematekids-project.json";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-async function saveProject() {
-  const task = state.tasks.get(state.activeTaskId) || state.tasks.get(state.artifactTaskId);
-  if (!task || !editor) {
-    toast("这个作品没有对应的课程任务，暂时不能保存。", true);
-    return false;
-  }
-  try {
-    const program = buildProgram(state.root, task);
-    const payload = await API.saveProject(program, program.courseRef);
-    downloadProject(payload);
-    state.dirty = false;
-    state.savedSnapshot = cloneTree(state.root);
-    toast("作品已保存到本机。");
-    return true;
-  } catch (error) {
-    toast(error.messageForChild || "没有保存成功，可以再试一次。", true);
-    return false;
-  }
-}
-
-async function openProject(file) {
-  if (!file || !editor) {
-    return;
-  }
-  try {
-    const text = await file.text();
-    const data = await API.loadProject(text);
-    const taskId = data.program?.courseRef?.taskId || "";
-    const task = state.tasks.get(taskId);
-    const validTask = Boolean(task && task.enterable && data.runnable);
-    if (!(await confirmLeaveDirty())) {
-      return;
-    }
-    if (runner) {
-      await runner.leaveRunContext({ reason: "open-project" });
-    }
-    applyArtifact({
-      state,
-      descriptor: {
-        source: "project",
-        taskId: validTask ? taskId : "",
-        root: data.program.root,
-        readonly: !validTask,
-        readonlyReason: validTask ? "" : data.readOnlyReason || "这个作品对应的任务不在本机",
-      },
-      dom,
-      editor,
-      renderAll,
-      runner,
-    });
-    if (data.migratedFrom != null) {
-      toast(`作品已从旧版本 ${data.migratedFrom} 升级。`);
-    }
-    if (!validTask) {
-      toast(data.readOnlyReason || "这个作品现在只能看，不能运行。", true);
-    } else {
-      toast("作品打开啦。");
-    }
-  } catch (error) {
-    toast(error.messageForChild || "这个文件不是我们的项目文件。", true);
-  } finally {
-    dom["project-file"].value = "";
-  }
-}
-
 function openSummary() {
   showSummary({
     panel: dom["summary-panel"],
@@ -402,10 +237,8 @@ function openSummary() {
           toast("这节课的加练还没准备好。");
           return;
         }
-        if (runner) {
-          await runner.leaveRunContext({ reason: "summary-variant" });
-        }
-        applyTask("variant", { reason: "summary" });
+        await leaveRunContext("summary-variant");
+        applyTask("variant");
       },
       onShowSkipped: (skipped) => {
         toast(skipped.length ? `先跳过的任务：${skipped.join("、")}` : "这次没有跳过的任务。");
@@ -419,18 +252,45 @@ function openSummary() {
 }
 
 function handleStateChange(reason) {
+  if (reason === "phase") {
+    editor?.render();
+  }
+  if (reason === "program") {
+    state.programRevision += 1;
+    state.dirty = true;
+    dom["prediction-compare"].hidden = true;
+  }
   if (reason === "program" || reason === "select") {
     renderPrediction(state, predictionElements(), {});
     runner?.updateControls();
-    if (reason === "program") {
-      state.dirty = true;
-      dom["prediction-compare"].hidden = true;
-    }
   }
 }
 
 async function boot() {
   collectDom();
+  projects = createProjectWorkflow({
+    state,
+    elements: {
+      dialog: dom["confirm-dialog"],
+      title: dom["confirm-title"],
+      text: dom["confirm-text"],
+      file: dom["project-file"],
+    },
+    editorReady: () => Boolean(editor),
+    applyProject: installArtifact,
+    leaveRunContext,
+    toast,
+  });
+  const courses = createCourseWorkflow({
+    state,
+    elements: startupElements(),
+    confirmLeaveDirty: projects.confirmLeaveDirty,
+    leaveRunContext,
+    applyTask,
+    renderAll,
+    updateRunControls: () => runner?.updateControls(),
+    toast,
+  });
   subscribe(handleStateChange);
   dom["prediction-submit"].addEventListener("click", submitPrediction);
   dom["prediction-input"].addEventListener("keydown", (event) => {
@@ -438,11 +298,11 @@ async function boot() {
       submitPrediction();
     }
   });
-  dom["save-project"].addEventListener("click", saveProject);
+  dom["save-project"].addEventListener("click", projects.saveProject);
   dom["open-project"].addEventListener("click", () => dom["project-file"].click());
   dom["project-file"].addEventListener("change", () => {
     const file = dom["project-file"].files?.[0];
-    openProject(file);
+    projects.openProject(file);
   });
   if (dom["summary-open"]) {
     dom["summary-open"].addEventListener("click", openSummary);
@@ -474,6 +334,7 @@ async function boot() {
 
     editor = new EditorView({
       canvas: dom["block-canvas"],
+      toolbox: dom.toolbox,
       stage: dom["block-canvas"].parentElement,
       mirror: dom["a11y-mirror"],
       empty: dom["canvas-empty"],
@@ -503,21 +364,6 @@ async function boot() {
     const startup = await API.startup();
     state.startup = startup;
     state.mode = startup.tutorMode;
-    state.contentVersion = startup.contentVersion || null;
-    renderStartup(startup, startupElements(), {
-      onRetry: refreshStartup,
-      onEnter: () => {
-        dom["startup-banner"].hidden = true;
-      },
-    });
-
-    const course = await API.course();
-    state.course = course;
-    state.tasks = new Map(course.tasks.map((task) => [task.taskId, task]));
-    state.variantAvailable = Boolean(course.tasks.find((task) => task.taskId === "variant")?.enterable);
-    if (course.contentVersion) {
-      state.contentVersion = course.contentVersion;
-    }
 
     runner = createRunner({
       elements: {
@@ -534,7 +380,7 @@ async function boot() {
       editor,
       toast,
       refresh: (reason) => renderAll(reason || "run"),
-      resetToTask: (taskId) => applyTask(taskId),
+      resetToTask: applyTask,
     });
 
     tutor = createTutor({
@@ -551,12 +397,16 @@ async function boot() {
       onChange: () => {},
     });
 
-    applyTask("main");
-    if (startup.status === "ready") {
+    const course = await API.course();
+    if (courses.installCourse(course) && startup.status === "ready") {
       toast("课堂准备好啦，先读一读目标，再猜一猜角色会动几次。");
     }
   } catch (error) {
     toast(error.messageForChild || "课堂没有加载成功，请刷新页面再试。", true);
+  } finally {
+    if (state.startup) {
+      courses.renderReport();
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 /** 运行控制：门禁、重入保护、SSE 归属、停止与离开运行上下文。 */
-import { buildProgram, validateTree } from "../editor/model.js";
+import { buildProgram, programWorkspace, validateTree } from "../editor/model.js";
 import { evaluateRunGate } from "../core/runGate.js";
 import {
   createRunSession,
@@ -25,6 +25,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
   let streamText = "";
   let source = null;
   let lastStdoutSeq = 0;
+  let recoveringRequestId = null;
   const session = createRunSession();
 
   function gateReason() {
@@ -51,7 +52,8 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     const busy = isBusy(session);
     const reason = state.runRecovery || gateReason();
     elements.run.disabled = busy || Boolean(reason);
-    elements.stop.disabled = !(session.phase === "running" || session.phase === "cancelling" || session.phase === "abandoned");
+    const canStop = session.phase === "running" || session.phase === "cancelling" || session.phase === "abandoned";
+    elements.stop.disabled = !canStop || (recoveringRequestId !== null && recoveringRequestId === session.requestId);
     elements.hint.textContent = state.runRecovery || reason || "准备好了，点运行试试。";
     elements.hint.className = reason ? "hint-text bad" : "hint-text ok";
     elements.stateChip.textContent = busy ? phaseLabel() : phaseLabel();
@@ -82,7 +84,6 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     state.lastRunStatus = null;
     state.errorBlockId = null;
     state.runRecovery = null;
-    session.resultReceived = false;
     editor.state.errorBlockId = null;
     editor.cancelDrag?.("running");
     setPhase("validating");
@@ -163,23 +164,24 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
 
   function openStream(ctx, task, requestId, cancelToken) {
     closeStream();
-    source = new EventSource(`/api/v1/runs/${requestId}/events`);
+    const eventSource = new EventSource(`/api/v1/runs/${requestId}/events`);
+    source = eventSource;
 
     const active = () => {
-      if (session.disposed || !isContextActive(state, ctx, session)) {
+      if (source !== eventSource || !isContextActive(state, ctx, session)) {
         return false;
       }
       return session.requestId === requestId;
     };
 
-    source.addEventListener("started", () => {
+    eventSource.addEventListener("started", () => {
       if (!active()) {
         return;
       }
       toast("开始运行啦。");
     });
 
-    source.addEventListener("event", (message) => {
+    eventSource.addEventListener("event", (message) => {
       if (!active()) {
         return;
       }
@@ -196,7 +198,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       editor.render();
     });
 
-    source.addEventListener("stdout", (message) => {
+    eventSource.addEventListener("stdout", (message) => {
       if (!active()) {
         return;
       }
@@ -210,7 +212,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       elements.liveOutput.textContent = streamText;
     });
 
-    source.addEventListener("result", (message) => {
+    eventSource.addEventListener("result", (message) => {
       if (!active()) {
         return;
       }
@@ -219,7 +221,6 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         return;
       }
       closeStream();
-      session.resultReceived = true;
       state.runningBlockId = null;
       editor.state.runningBlockId = null;
       state.lastResult = data;
@@ -249,27 +250,49 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       }
     });
 
-    source.onerror = async () => {
+    eventSource.onerror = async () => {
       if (!active()) {
         return;
       }
-      if (session.resultReceived) {
-        return;
-      }
       closeStream();
+      toast("运行连接中断了，正在检查运行状态。");
+      await recoverDisconnectedRun(requestId, cancelToken);
+    };
+  }
+
+  async function recoverDisconnectedRun(requestId, cancelToken) {
+    if (recoveringRequestId === requestId) {
+      return;
+    }
+    const ctx = captureContext(state, session.taskId);
+    recoveringRequestId = requestId;
+    session.phase = "cancelling";
+    updateControls();
+    try {
       await cancelAccepted(requestId, cancelToken);
       const snapshot = await waitForTerminal(requestId, 10, 100);
+      if (session.requestId !== requestId || !isContextActive(state, ctx, session)) {
+        return;
+      }
       if (snapshot) {
-        state.runRecovery = "运行连接中断了，可以再试一次。";
+        state.runRecovery = null;
+        state.lastRunStatus = snapshot.status;
+        state.runningBlockId = null;
+        editor.state.runningBlockId = null;
         release(session);
+        setPhase("error");
+        editor.render();
+        toast("运行连接中断了，可以再试一次。");
       } else {
         state.runRecovery = "上一次还没停下来，可以再点停止。";
-        session.phase = "cancelling";
+        toast(state.runRecovery);
       }
-      setPhase("error");
-      toast("运行连接中断了。");
+    } finally {
+      if (recoveringRequestId === requestId) {
+        recoveringRequestId = null;
+      }
       updateControls();
-    };
+    }
   }
 
   function closeStream() {
@@ -282,10 +305,8 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
   async function cancelAccepted(requestId, cancelToken) {
     try {
       await window.__cmkApi.cancelRun(requestId, cancelToken);
-    } catch (error) {
-      if (error.code !== "RUN_NOT_FOUND") {
-        state.runRecovery = "上一次还没停下来，可以再点停止。";
-      }
+    } catch {
+      // 停止响应可能丢失，是否结束以随后查询的运行摘要为准。
     }
   }
 
@@ -315,15 +336,25 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       }
       return;
     }
+    const { requestId, cancelToken } = session;
+    const eventSource = source;
+    if (!eventSource && !session.disposed) {
+      await recoverDisconnectedRun(requestId, cancelToken);
+      return;
+    }
     enterCancelling(session);
     updateControls();
     try {
-      await window.__cmkApi.cancelRun(session.requestId, session.cancelToken);
-      state.runRecovery = null;
-      toast("正在停止…");
+      await window.__cmkApi.cancelRun(requestId, cancelToken);
+      if (session.requestId === requestId && source === eventSource) {
+        state.runRecovery = null;
+        toast("正在停止…");
+      }
     } catch (error) {
-      state.runRecovery = "上一次还没停下来，可以再点停止。";
-      toast(error.messageForChild || "停止没有成功。");
+      if (session.requestId === requestId && source === eventSource) {
+        state.runRecovery = "上一次还没停下来，可以再点停止。";
+        toast(error.messageForChild || "停止没有成功。");
+      }
     } finally {
       updateControls();
     }
@@ -378,7 +409,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     if (resetToTask) {
       resetToTask(task.taskId);
     } else {
-      editor.setProgram(task.initialProgram.root);
+      editor.setProgram(programWorkspace(task.initialProgram));
       resetObjectView(elements.objectView);
       setPhase("editing");
     }

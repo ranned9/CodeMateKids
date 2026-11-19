@@ -6,6 +6,7 @@
     "motion.move",
     "motion.turn",
     "look.say",
+    "text.print",
     "value.number",
     "value.calc"
   ]

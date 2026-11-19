@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codematekids.local/schemas/program.v2.json",
+  "title": "codematekids.program",
+  "type": "object",
+  "required": ["format", "formatVersion", "target", "courseRef", "stacks", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {"const": "codematekids.program"},
+    "formatVersion": {"type": "integer", "const": 2},
+    "target": {"$ref": "program.v1.json#/properties/target"},
+    "courseRef": {"$ref": "program.v1.json#/properties/courseRef"},
+    "metadata": {"$ref": "program.v1.json#/properties/metadata"},
+    "stacks": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": ["x", "y", "root"],
+        "additionalProperties": false,
+        "properties": {
+          "x": {"type": "integer", "minimum": 0, "maximum": 4096},
+          "y": {"type": "integer", "minimum": 0, "maximum": 8192},
+          "root": {"$ref": "program.v1.json#/$defs/blockNode"},
+          "legacy": {"type": "boolean", "description": "保留旧作品中无开始积木的脚本执行行为。"}
+        }
+      }
+    }
+  }
+}

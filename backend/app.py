@@ -6,8 +6,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from backend.api.routers import build_router
 from backend.infra.config import BASE_DIR, Settings, load_settings
@@ -16,6 +17,13 @@ from backend.service.run import RunManager
 from backend.session.store import SessionStore
 
 FRONTEND_DIR = BASE_DIR / "frontend"
+
+
+class FrontendFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -44,7 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_router())
 
     if FRONTEND_DIR.exists():
-        app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+        app.mount("/assets", FrontendFiles(directory=FRONTEND_DIR), name="frontend-assets")
+        app.mount("/", FrontendFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
     return app
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from backend.domain.blocks import BlocksRegistry, load_blocks
-from backend.domain.program import ProgramError, validate_program
+from backend.domain.program import ProgramError, number_input_value, program_roots, validate_program
 
 TARGET_FILENAME = "<cmk-program>"
 
@@ -65,17 +65,14 @@ class _Emitter:
         if kind == "event.start":
             self.emit_line(f"{pad}pass", block_id)
         elif kind == "control.repeat":
-            times = inputs.get("times", 4)
-            if isinstance(times, bool) or not isinstance(times, int):
-                raise CompilationError("重复次数需要一个整数", block_id)
-            if not 1 <= times <= 100:
-                raise CompilationError("重复次数超出范围", block_id)
+            times = int(number_input_value(inputs["times"]))
             self._repeat_seq += 1
             safe_name = f"_repeat_{self._repeat_seq}"
             self.emit_line(f"{pad}for {safe_name} in range({times}):", block_id)
             body = node.get("body") or []
             if body:
-                self.emit_chain(body[0], indent + 1)
+                for child in body:
+                    self.emit_chain(child, indent + 1)
             else:
                 self.emit_line(f"{pad}    pass", block_id)
         elif kind == "motion.move":
@@ -142,8 +139,7 @@ def compile_program(program: dict[str, Any], registry: BlocksRegistry | None = N
         raise CompilationError(exc.message, exc.block_id) from exc
 
     emitter = _Emitter(registry)
-    root = program.get("root")
-    if isinstance(root, dict):
+    for root in program_roots(program, runnable_only=True):
         emitter.emit_chain(root, 0)
     if not emitter.lines:
         emitter.lines.append("pass")

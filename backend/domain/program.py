@@ -13,6 +13,8 @@ MAX_DEPTH = 20
 MAX_BYTES = 2 * 1024 * 1024
 MAX_JSON_DEPTH = 32
 MAX_STRING_LENGTH = 120
+MAX_STACK_X = 4096
+MAX_STACK_Y = 8192
 
 ALLOWED_PROGRAM_KEYS = {"format", "formatVersion", "target", "courseRef", "root", "metadata"}
 ALLOWED_NODE_KEYS = {"blockId", "kind", "inputs", "body", "next", "unknown"}
@@ -51,6 +53,21 @@ def json_depth(value: Any, current: int = 1, limit: int = MAX_JSON_DEPTH + 8) ->
     return current
 
 
+def program_json_depth_limit(program: dict[str, Any]) -> int:
+    return MAX_JSON_DEPTH + (2 if program.get("formatVersion") == 2 else 0)
+
+
+def _stack_runs(stack: dict[str, Any]) -> bool:
+    return stack.get("legacy", False) or stack["root"].get("kind") == "event.start"
+
+
+def program_roots(program: dict[str, Any], *, runnable_only: bool = False) -> list[dict[str, Any]]:
+    if program.get("formatVersion") == 2:
+        return [stack["root"] for stack in program["stacks"] if not runnable_only or _stack_runs(stack)]
+    root = program.get("root")
+    return [root] if isinstance(root, dict) else []
+
+
 def validate_program(
     program: dict[str, Any],
     registry: BlocksRegistry | None = None,
@@ -60,16 +77,18 @@ def validate_program(
     registry = registry or load_blocks()
     if not isinstance(program, dict):
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "程序结构有问题。")
-    extra_keys = set(program) - ALLOWED_PROGRAM_KEYS
+    format_version = program.get("formatVersion")
+    if type(format_version) is not int or format_version not in (1, 2):
+        raise ProgramError("PROGRAM_SCHEMA_INVALID", "项目文件版本不对。")
+    allowed_keys = ALLOWED_PROGRAM_KEYS if format_version == 1 else ALLOWED_PROGRAM_KEYS - {"root"} | {"stacks"}
+    extra_keys = set(program) - allowed_keys
     if extra_keys:
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "项目里有多余的内容，不能运行。")
-    missing_keys = ALLOWED_PROGRAM_KEYS - set(program)
+    missing_keys = allowed_keys - set(program)
     if missing_keys:
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "项目缺少必要的信息。")
     if program.get("format") != "codematekids.program":
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "这不是我们的项目文件。")
-    if program.get("formatVersion") != 1:
-        raise ProgramError("PROGRAM_SCHEMA_INVALID", "项目文件版本不对。")
 
     target = program.get("target")
     if not isinstance(target, dict):
@@ -89,18 +108,46 @@ def validate_program(
     for key in ("courseId", "version", "taskId"):
         if key not in course_ref:
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "课程引用不完整。")
+    version = course_ref["version"]
+    if type(version) is not int or version < 1:
+        raise ProgramError("PROGRAM_SCHEMA_INVALID", "作品里的课程版本需要是正整数。")
     if expected_task_id and course_ref.get("taskId") != expected_task_id:
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "程序和当前任务对不上。")
-
-    root = program.get("root")
-    if root is not None and not isinstance(root, dict):
-        raise ProgramError("PROGRAM_SCHEMA_INVALID", "根积木结构不对。")
 
     counter = {"nodes": 0}
     seen_ids: set[str] = set()
     max_depth = {"value": 0}
-    if root is not None:
-        _validate_node(root, registry, 1, counter, seen_ids, max_depth, enforce_runnable)
+    if format_version == 1:
+        root = program["root"]
+        if root is not None:
+            if not isinstance(root, dict):
+                raise ProgramError("PROGRAM_SCHEMA_INVALID", "根积木结构不对。")
+            _validate_node(root, registry, 1, counter, seen_ids, max_depth, enforce_runnable)
+    else:
+        stacks = program["stacks"]
+        if not isinstance(stacks, list):
+            raise ProgramError("PROGRAM_SCHEMA_INVALID", "积木组结构不对。")
+        for stack in stacks:
+            if (
+                not isinstance(stack, dict)
+                or set(stack) - {"x", "y", "root", "legacy"}
+                or not isinstance(stack.get("root"), dict)
+                or type(stack.get("legacy", False)) is not bool
+                or type(stack.get("x")) is not int or not 0 <= stack["x"] <= MAX_STACK_X
+                or type(stack.get("y")) is not int or not 0 <= stack["y"] <= MAX_STACK_Y
+            ):
+                raise ProgramError("PROGRAM_SCHEMA_INVALID", "积木组的位置或结构不对。")
+            root = stack["root"]
+            kind = root.get("kind")
+            definition = registry.get(kind) if isinstance(kind, str) else None
+            port = "statement-next"
+            if definition and definition.output_type == "expression":
+                if _stack_runs(stack) or root.get("next") is not None:
+                    raise ProgramError("PROGRAM_SCHEMA_INVALID", "数字和运算积木需要放进数值插口。")
+                port = "expression"
+            _validate_node(root, registry, 1, counter, seen_ids, max_depth, enforce_runnable and _stack_runs(stack), port)
+        if enforce_runnable and not program_roots(program, runnable_only=True):
+            raise ProgramError("PROGRAM_SCHEMA_INVALID", "把要运行的积木接在「当开始」下面。")
 
     if counter["nodes"] > MAX_NODES:
         raise ProgramError("PROGRAM_TOO_LARGE", "积木太多啦，请先删掉一些。")
@@ -113,7 +160,7 @@ def validate_program(
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "程序结构有问题。") from exc
     if size_bytes > MAX_BYTES:
         raise ProgramError("PROGRAM_TOO_LARGE", "项目太大啦，先试试更小的作品。")
-    if json_depth(program) > MAX_JSON_DEPTH:
+    if json_depth(program) > program_json_depth_limit(program):
         raise ProgramError("PROGRAM_TOO_LARGE", "文件层级太深啦。")
 
     return ProgramStats(
@@ -132,6 +179,7 @@ def _validate_node(
     seen_ids: set[str],
     max_depth: dict[str, int],
     enforce_runnable: bool,
+    target_port: str = "statement-next",
 ) -> None:
     if isinstance(node, dict) and node.get("unknown") is True:
         if enforce_runnable:
@@ -163,6 +211,7 @@ def _validate_node(
                             seen_ids,
                             max_depth,
                             enforce_runnable,
+                            "statement-body",
                         )
             next_node = node.get("next")
             if isinstance(next_node, dict):
@@ -179,6 +228,8 @@ def _validate_node(
         raise ProgramError("PYTHON_FEATURE_BLOCKED", "这个积木现在不能运行。", block_id)
     if enforce_runnable and not definition.runnable:
         raise ProgramError("PYTHON_FEATURE_BLOCKED", "这个积木现在不能运行。", block_id)
+    if not registry.accepts(definition.output_type, target_port):
+        raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要动作积木。", block_id)
 
     counter["nodes"] += 1
     max_depth["value"] = max(max_depth["value"], depth)
@@ -195,6 +246,8 @@ def _validate_node(
         name = str(field["name"])
         value = inputs.get(name)
         if field.get("required") and (value is None or value == ""):
+            if not enforce_runnable and field.get("valueType") == "expression" and value is None:
+                continue
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置还需要填内容。", block_id)
         if value is None:
             continue
@@ -212,13 +265,17 @@ def _validate_node(
         for child in body:
             if not isinstance(child, dict):
                 raise ProgramError("PROGRAM_SCHEMA_INVALID", "语句体里有不认识的内容。", block_id)
-            _validate_node(child, registry, depth + 1, counter, seen_ids, max_depth, enforce_runnable)
+            _validate_node(child, registry, depth + 1, counter, seen_ids, max_depth, enforce_runnable, "statement-body")
 
     next_node = node.get("next")
     if next_node is not None:
         if not isinstance(next_node, dict):
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "积木连接结构不对。", block_id)
         _validate_node(next_node, registry, depth + 1, counter, seen_ids, max_depth, enforce_runnable)
+
+
+def number_input_value(value: Any) -> Any:
+    return (value.get("inputs") or {}).get("value") if isinstance(value, dict) else value
 
 
 def _validate_field_value(
@@ -233,7 +290,18 @@ def _validate_field_value(
     enforce_runnable: bool,
 ) -> None:
     value_type = field.get("valueType")
-    if value_type == "number":
+    if value_type in ("number", "integer"):
+        if field.get("acceptsNumberBlock") and isinstance(value, dict):
+            if value.get("kind") != "value.number" or value.get("next") is not None:
+                raise ProgramError("PROGRAM_SCHEMA_INVALID", "次数格只接收数字积木。", block_id)
+            _validate_expression_node(value, registry, block_id, depth + 1, counter, seen_ids, max_depth, enforce_runnable)
+            count = number_input_value(value)
+            if type(count) is float and count.is_integer():
+                count = int(count)
+            block_id = value["blockId"]
+            value = count
+        if value_type == "integer" and type(value) is not int:
+            raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要一个整数。", block_id)
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要一个数字。", block_id)
         value_range = field.get("range") or {}
@@ -276,14 +344,18 @@ def _validate_expression_node(
     definition = registry.get(kind) if isinstance(kind, str) else None
     if definition is None or definition.output_type != "expression":
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要一个数字或值。", parent_block_id)
-    _validate_node(node, registry, depth, counter, seen_ids, max_depth, enforce_runnable)
+    _validate_node(node, registry, depth, counter, seen_ids, max_depth, enforce_runnable, "expression")
 
 
 def summarize_program(program: dict[str, Any], registry: BlocksRegistry | None = None) -> str:
     registry = registry or load_blocks()
-    root = program.get("root")
-    if not isinstance(root, dict):
-        return "画布还是空的"
+    roots = program_roots(program, runnable_only=True)
+    if roots:
+        return " / ".join(_summarize_chain(root, registry) for root in roots)
+    return "积木还没有接到「当开始」" if program_roots(program) else "画布还是空的"
+
+
+def _summarize_chain(root: dict[str, Any], registry: BlocksRegistry) -> str:
     parts: list[str] = []
     node = root
     guard = 0
@@ -292,16 +364,15 @@ def summarize_program(program: dict[str, Any], registry: BlocksRegistry | None =
         definition = registry.get(str(node.get("kind")))
         name = definition.display_name if definition else "未知积木"
         if node.get("kind") == "control.repeat":
-            times = (node.get("inputs") or {}).get("times", "?")
-            body = node.get("body") or []
+            times = number_input_value((node.get("inputs") or {}).get("times", "?"))
             body_names = []
-            child = body[0] if body else None
-            guard_body = 0
-            while isinstance(child, dict) and guard_body < 20:
-                guard_body += 1
-                child_def = registry.get(str(child.get("kind")))
-                body_names.append(child_def.display_name if child_def else "未知积木")
-                child = child.get("next")
+            for child in node.get("body") or []:
+                while isinstance(child, dict) and len(body_names) < 20:
+                    child_def = registry.get(str(child.get("kind")))
+                    body_names.append(child_def.display_name if child_def else "未知积木")
+                    child = child.get("next")
+                if len(body_names) >= 20:
+                    break
             inner = "、".join(body_names) if body_names else "没有动作"
             parts.append(f"重复 {times} 次（{inner}）")
         else:

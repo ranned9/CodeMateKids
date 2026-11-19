@@ -22,6 +22,6 @@ if errorlevel 1 (
 )
 
 echo [CodeMateKids] Python 3.12 与依赖校验通过，正在启动 Demo...
-echo 打开 http://127.0.0.1:8000 开始学习。
+echo 打开 http://127.0.0.1:8000/?v=number-controls 开始学习。
 python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 endlocal

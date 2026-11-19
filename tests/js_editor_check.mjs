@@ -17,7 +17,9 @@ const connector = await import(asUrl("frontend/js/editor/connector.js"));
 const layoutModule = await import(asUrl("frontend/js/editor/layout.js"));
 const targetsModule = await import(asUrl("frontend/js/editor/targets.js"));
 const dndModule = await import(asUrl("frontend/js/editor/dnd.js"));
+const { planWorkspaceDrop } = await import(asUrl("frontend/js/editor/workspace.js"));
 const undoModule = await import(asUrl("frontend/js/editor/undo.js"));
+const { EditorView } = await import(asUrl("frontend/js/views/canvas.js"));
 
 const start = model.createBlock(definitions.get("event.start"));
 const repeat = model.createBlock(definitions.get("control.repeat"));
@@ -286,6 +288,45 @@ assert.equal(movePlan.ok, true);
 assert.equal(movePlan.root.next.blockId, lastChild.blockId);
 assert.equal(model.countNodes(movePlan.root), model.countNodes(insertPlan.root));
 
+// 已有作品可能在同一个循环体内保存多条语句链。
+const multiBodyRoot = model.cloneTree(bodyRoot);
+const secondHead = model.createBlock(definitions.get("look.say"));
+secondHead.inputs.text = "第二条链";
+multiBodyRoot.next.body.push(secondHead);
+const multiBodyLayout = layoutModule.computeLayout(multiBodyRoot, definitions);
+const childIds = multiBodyLayout.nodes
+  .filter((node) => node.ownerId === bodyRepeat.blockId)
+  .map((node) => node.blockId);
+assert.deepEqual(childIds, [firstChild.blockId, lastChild.blockId, secondHead.blockId]);
+const secondTarget = `body:${bodyRepeat.blockId}@after:${secondHead.blockId}`;
+assert.ok(multiBodyLayout.targets.some((target) => target.id === secondTarget));
+assert.equal(model.isTargetAlive(multiBodyRoot, secondTarget), true);
+const multiInsert = model.planDrop(multiBodyRoot, {
+  kind: "motion.move",
+  definition: moveDefinition,
+  targetId: secondTarget,
+});
+assert.equal(multiInsert.ok, true);
+assert.equal(multiInsert.root.next.body[1].next.blockId, multiInsert.node.blockId);
+const multiMove = model.planDrop(multiBodyRoot, {
+  blockId: secondHead.blockId,
+  kind: "look.say",
+  targetId: `body:${bodyRepeat.blockId}@start`,
+});
+assert.equal(multiMove.ok, true);
+assert.equal(multiMove.root.next.body[0].blockId, secondHead.blockId);
+assert.equal(multiMove.root.next.body[0].next.blockId, firstChild.blockId);
+const preview = { textContent: "" };
+EditorView.prototype.refresh.call({
+  state: { root: multiBodyRoot, blocksByKind: definitions },
+  code: preview,
+  measure() {},
+  render() {},
+});
+const firstChainEnd = preview.textContent.indexOf("    stage.turn(");
+assert.ok(firstChainEnd >= 0);
+assert.ok(preview.textContent.indexOf('    stage.say("第二条链")') > firstChainEnd);
+
 assert.equal(JSON.stringify(richRoot).includes("fieldName"), false);
 assert.equal(targetsModule.hasPlaceableTarget(emptyModel, numberDefinition, schema), false);
 assert.equal(targetsModule.hasPlaceableTarget(emptyModel, moveDefinition, schema), true);
@@ -329,6 +370,7 @@ let previewCalls = [];
 let toastCalls = [];
 let commitCalls = [];
 let commitPreview = null;
+const clickAdds = [];
 let cancelFrameCount = 0;
 const windowRecord = {
   adds: 0,
@@ -341,6 +383,19 @@ const windowRecord = {
   },
 };
 const canvasSource = makeSource("canvas");
+const toolboxChild = {};
+const toolboxClasses = new Set();
+const toolbox = {
+  ownerDocument: {
+    elementFromPoint: (x, y) => (x >= 750 && x <= 900 && y >= 40 && y <= 400 ? toolboxChild : null),
+  },
+  contains: (element) => element === toolboxChild,
+  classList: {
+    toggle: (name, active) => active ? toolboxClasses.add(name) : toolboxClasses.delete(name),
+    remove: (name) => toolboxClasses.delete(name),
+  },
+};
+const deletedBlocks = [];
 const editorStub = {
   canvas: canvasSource,
   state: {
@@ -361,6 +416,11 @@ const editorStub = {
   },
   selectBlock: () => {},
   startFieldEdit: () => {},
+  insertFromToolbox: (kind) => clickAdds.push(kind),
+  deleteBlock: (blockId) => {
+    deletedBlocks.push(blockId);
+    return true;
+  },
   toast: (message) => {
     toastCalls.push(message);
   },
@@ -373,6 +433,7 @@ const editorStub = {
   announceDrag: () => {},
 };
 const dnd = new dndModule.DndController(editorStub, {
+  toolbox,
   env: {
     window: windowRecord,
     requestAnimationFrame: () => 1,
@@ -383,6 +444,15 @@ const dnd = new dndModule.DndController(editorStub, {
 });
 
 const toolboxSource = makeSource("toolbox-button");
+dnd.startToolboxDrag("motion.move", { pointerId: 13, clientX: 20, clientY: 20 }, toolboxSource);
+dnd.onMove({ pointerId: 13, clientX: 23, clientY: 24 });
+assert.equal(previewCalls.length, 0);
+dnd.onUp({ pointerId: 13, clientX: 23, clientY: 24 });
+assert.deepEqual(clickAdds, ["motion.move"]);
+assert.equal(commitCalls.length, 0);
+previewCalls = [];
+const capturesBefore = toolboxSource.record.captures;
+const releasesBefore = toolboxSource.record.releases;
 dnd.begin(
   {
     kind: "motion.move",
@@ -395,7 +465,7 @@ dnd.begin(
 );
 assert.equal(dnd.session.pointerId, 7);
 assert.equal(dnd.session.captureOk, true);
-assert.equal(toolboxSource.record.captures, 1);
+assert.equal(toolboxSource.record.captures, capturesBefore + 1);
 assert.equal(toolboxSource.record.classes.has("is-grabbing"), true);
 assert.equal(previewCalls.length, 0);
 const lastPointBefore = { ...dnd.session.lastPoint };
@@ -405,7 +475,7 @@ dnd.session.frame = 99;
 dnd.teardown("cancelled");
 assert.equal(dnd.session, null);
 assert.equal(previewCalls[previewCalls.length - 1], null);
-assert.equal(toolboxSource.record.releases, 1);
+assert.equal(toolboxSource.record.releases, releasesBefore + 1);
 assert.equal(toolboxSource.record.adds, toolboxSource.record.removes);
 assert.equal(toolboxSource.record.classes.has("is-grabbing"), false);
 assert.equal(windowRecord.adds, windowRecord.removes);
@@ -436,10 +506,40 @@ const dndBodyStartTarget = richLayout.targets.find((target) => target.id === `bo
 assert.ok(dndAfterRepeatTarget);
 assert.ok(dndBodyStartTarget);
 
+for (const phase of ["result", "error"]) {
+  editorStub.state.phase = phase;
+  const commitCount = commitCalls.length;
+  dnd.startToolboxDrag("motion.move", { pointerId: 12, clientX: 10, clientY: 10 }, toolboxSource);
+  assert.equal(dnd.dragging, true);
+  dnd.onUp({
+    pointerId: 12,
+    clientX: dndAfterRepeatTarget.rect.x + 4,
+    clientY: dndAfterRepeatTarget.rect.y + 4,
+  });
+  assert.equal(commitCalls.length, commitCount + 1);
+  assert.equal(dnd.dragging, false);
+}
+for (const phase of ["validating", "running", "cancelling"]) {
+  editorStub.state.phase = phase;
+  dnd.startToolboxDrag("motion.move", { pointerId: 12 }, toolboxSource);
+  assert.equal(dnd.dragging, false);
+}
+editorStub.state.phase = "result";
+editorStub.state.readonly = true;
+dnd.startToolboxDrag("motion.move", { pointerId: 12 }, toolboxSource);
+assert.equal(dnd.dragging, false);
+editorStub.state.readonly = false;
+editorStub.state.phase = "editing";
+
 previewCalls = [];
 commitCalls = [];
 toastCalls = [];
 const startPoint = { x: dndBodyStartTarget.rect.x + 4, y: dndBodyStartTarget.rect.y + 4 };
+const canvasCapturesBefore = canvasSource.record.captures;
+dnd.onPointerDown({ button: 0, pointerId: 14, clientX: moveLayoutNode.rect.x + 5, clientY: moveLayoutNode.rect.y + 5 });
+dnd.onUp({ pointerId: 14, clientX: moveLayoutNode.rect.x + 5, clientY: moveLayoutNode.rect.y + 5 });
+assert.equal(commitCalls.length, 0);
+assert.equal(canvasSource.record.captures, canvasCapturesBefore + 1);
 dnd.begin(
   {
     kind: "motion.move",
@@ -450,7 +550,7 @@ dnd.begin(
   },
   { pointerId: 1, clientX: startPoint.x, clientY: startPoint.y },
 );
-assert.equal(canvasSource.record.captures, 1);
+assert.equal(canvasSource.record.captures, canvasCapturesBefore + 2);
 dnd.onMove({
   pointerId: 1,
   clientX: dndAfterRepeatTarget.rect.x + 4,
@@ -481,7 +581,7 @@ editorStub.commitDrop = () => {
 toastCalls = [];
 dnd.begin(
   { kind: "motion.move", blockId: null, definition: moveDefinition, origin: "toolbox", sourceElement: toolboxSource },
-  { pointerId: 3, clientX: startPoint.x, clientY: startPoint.y },
+  { pointerId: 3, clientX: -25, clientY: startPoint.y },
 );
 assert.doesNotThrow(() => {
   dnd.onUp({ pointerId: 3, clientX: startPoint.x, clientY: startPoint.y });
@@ -494,7 +594,7 @@ editorStub.commitDrop = () => false;
 toastCalls = [];
 dnd.begin(
   { kind: "motion.move", blockId: null, definition: moveDefinition, origin: "toolbox", sourceElement: toolboxSource },
-  { pointerId: 4, clientX: startPoint.x, clientY: startPoint.y },
+  { pointerId: 4, clientX: -25, clientY: startPoint.y },
 );
 dnd.onUp({ pointerId: 4, clientX: startPoint.x, clientY: startPoint.y });
 assert.equal(dnd.session, null);
@@ -514,7 +614,7 @@ dnd.begin(
     origin: "toolbox",
     sourceElement: throwingSource,
   },
-  { pointerId: 5, clientX: startPoint.x, clientY: startPoint.y },
+  { pointerId: 5, clientX: -25, clientY: startPoint.y },
 );
 assert.equal(dnd.session.captureOk, false);
 assert.equal(dnd.session.captureTarget, throwingSource);
@@ -522,6 +622,33 @@ dnd.onUp({ pointerId: 5, clientX: startPoint.x, clientY: startPoint.y });
 assert.equal(commitCalls.length, 1);
 assert.equal(throwingSource.record.releases, 0);
 assert.equal(dnd.session, null);
+
+const sourcePoint = { clientX: 200, clientY: 120 };
+const toolboxPoint = { clientX: 780, clientY: 160 };
+dnd.startBlockDrag(richMoveId, { pointerId: 15, ...sourcePoint });
+dnd.onMove({ pointerId: 15, ...toolboxPoint });
+assert.ok(toolboxClasses.has("is-remove-target"));
+dnd.onUp({ pointerId: 15, clientX: 740, clientY: 160 });
+assert.deepEqual(deletedBlocks, []);
+assert.equal(toolboxClasses.size, 0);
+
+dnd.startBlockDrag(richMoveId, { pointerId: 16, ...sourcePoint });
+dnd.onMove({ pointerId: 16, ...sourcePoint, clientX: 300 });
+dnd.onUp({ pointerId: 16, ...toolboxPoint });
+assert.deepEqual(deletedBlocks, [richMoveId]);
+assert.equal(toolboxClasses.size, 0);
+
+dnd.startBlockDrag(richMoveId, { pointerId: 17, ...sourcePoint });
+dnd.onMove({ pointerId: 17, ...toolboxPoint });
+dnd.onCancel({ pointerId: 17 });
+assert.deepEqual(deletedBlocks, [richMoveId]);
+assert.equal(toolboxClasses.size, 0);
+
+dnd.startToolboxDrag("motion.move", { pointerId: 18, ...toolboxPoint }, toolboxSource);
+dnd.onMove({ pointerId: 18, ...sourcePoint });
+dnd.onUp({ pointerId: 18, ...toolboxPoint });
+assert.deepEqual(deletedBlocks, [richMoveId]);
+assert.equal(toolboxClasses.size, 0);
 
 assert.equal(model.isTargetAlive(richRoot, "root@start"), true);
 assert.equal(model.isTargetAlive(richRoot, `root@after:${richRoot.blockId}`), true);
@@ -534,5 +661,49 @@ const serializedRoot = JSON.stringify(richRoot);
 assert.equal(serializedRoot.includes("pointerId"), false);
 assert.equal(serializedRoot.includes("sourceElement"), false);
 assert.equal(serializedRoot.includes("captureOk"), false);
+
+const addToWorkspace = (workspace, kind, placement) => planWorkspaceDrop(workspace, {
+  kind,
+  definition: definitions.get(kind),
+  ...placement,
+});
+const freeScript = addToWorkspace(null, "event.start", { freePosition: { x: 20, y: 35 } });
+const startId = freeScript.node.blockId;
+const action = addToWorkspace(freeScript.root, "motion.move", { targetId: `stack:${startId}@after:${startId}` });
+const actionId = action.node.blockId;
+const speaking = addToWorkspace(action.root, "look.say", { targetId: `stack:${startId}@after:${actionId}` });
+const separated = addToWorkspace(speaking.root, "motion.move", { blockId: actionId, freePosition: { x: 420, y: 220 } });
+assert.equal(separated.root[0].root.next, null);
+assert.equal(separated.root[1].root.next.blockId, speaking.node.blockId);
+assert.equal(model.runnableRoots(separated.root).length, 1);
+
+const withDraft = addToWorkspace(separated.root, "text.print", { freePosition: { x: 80, y: 285 } });
+assert.equal(model.validateTree(withDraft.root).ok, true);
+const withLooseNumber = addToWorkspace(withDraft.root, "value.number", { freePosition: { x: 520, y: 55 } });
+const numberId = withLooseNumber.node.blockId;
+const withNumber = addToWorkspace(withLooseNumber.root, "value.number", {
+  blockId: numberId,
+  targetId: `expr:${withDraft.node.blockId}.value`,
+});
+assert.equal(withNumber.root.length, 3);
+assert.equal(withNumber.root[2].root.inputs.value.blockId, numberId);
+
+const movedStack = addToWorkspace(withNumber.root, "motion.move", { blockId: actionId, freePosition: { x: 430, y: 130 } });
+assert.equal(movedStack.root[1].root.next.blockId, speaking.node.blockId);
+const workspaceLayout = layoutModule.computeLayout(movedStack.root, definitions);
+assert.ok(workspaceLayout.targets.some((target) => target.id === `stack:${actionId}@start`));
+assert.equal(workspaceLayout.nodes.find((node) => node.blockId === actionId).rect.x, 430);
+const secondScript = addToWorkspace(movedStack.root, "event.start", { targetId: `stack:${actionId}@start` });
+assert.equal(model.runnableRoots(secondScript.root).length, 2);
+assert.equal(secondScript.root[1].root.next.blockId, actionId);
+const savedWorkspace = model.buildProgram(secondScript.root, { taskId: "main" });
+assert.equal(savedWorkspace.formatVersion, 2);
+assert.deepEqual(model.programWorkspace(JSON.parse(JSON.stringify(savedWorkspace))), secondScript.root);
+
+editorStub.state.root = secondScript.root;
+editorStub.layout = layoutModule.computeLayout(secondScript.root, definitions);
+dnd.startToolboxDrag("value.number", { pointerId: 20, ...toolboxPoint }, toolboxSource);
+dnd.onUp({ pointerId: 20, clientX: 360, clientY: 390 });
+assert.deepEqual(commitCalls.at(-1)[2].freePosition, { x: 344, y: 374 });
 
 console.log("JS-EDITOR-CHECK PASSED");

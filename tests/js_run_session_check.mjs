@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sessionModule = await import(pathToFileURL(path.join(root, "frontend/js/core/runSession.js")).href);
+const { createRunner } = await import(pathToFileURL(path.join(root, "frontend/js/views/runner.js")).href);
+const { state } = await import(pathToFileURL(path.join(root, "frontend/js/state.js")).href);
 
 const {
   createRunSession,
@@ -70,5 +72,105 @@ assert.equal(abandoned.phase, "abandoned");
 assert.equal(isBusy(abandoned), true);
 release(abandoned);
 assert.equal(isBusy(abandoned), false);
+
+// 通过实际运行控制器验证 SSE 断线后的按钮状态与再次提交。
+const requests = [];
+const cancellations = [];
+const toasts = [];
+let stream;
+let finished = true;
+let nextCancelResponse = null;
+globalThis.EventSource = class {
+  constructor() {
+    stream = this;
+  }
+  addEventListener() {}
+  close() {
+    this.closed = true;
+  }
+};
+globalThis.window = {
+  setTimeout: (callback) => callback(),
+  __cmkApi: {
+    async submitRun(payload) {
+      requests.push(payload);
+    },
+    async cancelRun(requestId, cancelToken) {
+      cancellations.push({ requestId, cancelToken });
+      const response = nextCancelResponse;
+      nextCancelResponse = null;
+      return response;
+    },
+    async getRun() {
+      return { finished, status: finished ? "cancelled" : "running" };
+    },
+  },
+};
+Object.assign(state, {
+  startup: { status: "ready" },
+  tasks: new Map([["main", { taskId: "main", enterable: true }]]),
+  root: { blockId: "b-start", kind: "event.start", inputs: {}, body: [], next: null },
+  prediction: new Map([["main", 0]]),
+});
+const elements = Object.fromEntries(
+  ["run", "stop", "reset", "hint", "stateChip"].map((key) => [key, { addEventListener() {} }]),
+);
+const runner = createRunner({
+  elements,
+  state,
+  editor: { state, render() {} },
+  toast: (message) => toasts.push(message),
+  refresh() {},
+});
+
+await runner.run();
+assert.equal(elements.run.disabled, true);
+assert.equal(elements.stop.disabled, false);
+const firstStream = stream;
+state.runningBlockId = "b-start";
+await firstStream.onerror();
+assert.equal(firstStream.closed, true);
+assert.equal(runner.isBusy(), false);
+assert.equal(state.runningBlockId, null);
+assert.equal(elements.run.disabled, false);
+assert.match(toasts.at(-1), /可以再试一次/);
+
+await runner.run();
+assert.equal(requests.length, 2);
+assert.notEqual(requests[0].requestId, requests[1].requestId);
+await firstStream.onerror();
+assert.equal(cancellations.length, 1);
+assert.equal(runner.getSession().requestId, requests[1].requestId);
+
+finished = false;
+await stream.onerror();
+assert.equal(runner.isBusy(), true);
+assert.equal(elements.run.disabled, true);
+assert.equal(elements.stop.disabled, false);
+await runner.run();
+assert.equal(requests.length, 2);
+
+finished = true;
+await runner.stop();
+assert.equal(runner.isBusy(), false);
+assert.equal(elements.run.disabled, false);
+assert.deepEqual(cancellations, [
+  { requestId: requests[0].requestId, cancelToken: requests[0].cancelToken },
+  { requestId: requests[1].requestId, cancelToken: requests[1].cancelToken },
+  { requestId: requests[1].requestId, cancelToken: requests[1].cancelToken },
+]);
+await runner.run();
+assert.equal(requests.length, 3);
+
+let rejectPendingStop;
+nextCancelResponse = new Promise((_, reject) => {
+  rejectPendingStop = reject;
+});
+const pendingStop = runner.stop();
+await stream.onerror();
+rejectPendingStop(new Error("late cancel failure"));
+await pendingStop;
+assert.equal(runner.isBusy(), false);
+assert.equal(elements.run.disabled, false);
 
 console.log("JS-RUN-SESSION-CHECK PASSED");

@@ -55,7 +55,10 @@
         "control.repeat",
         "motion.move",
         "motion.turn",
-        "look.say"
+        "look.say",
+        "text.print",
+        "value.number",
+        "value.calc"
       ],
       "successCriteria": [
         {
@@ -158,7 +161,10 @@
         "control.repeat",
         "motion.move",
         "motion.turn",
-        "look.say"
+        "look.say",
+        "text.print",
+        "value.number",
+        "value.calc"
       ],
       "successCriteria": [
         {
@@ -215,5 +221,5 @@
     {"themeId": "variable", "title": "变量", "status": "coming_soon"}
   ],
   "reviewStatus": "reviewed",
-  "contentVersion": "1.1.0"
+  "contentVersion": "1.2.0"
 }

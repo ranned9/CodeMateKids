@@ -105,7 +105,10 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
 
 .workspace {
   display: grid;
-  grid-template-columns: 280px minmax(640px, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 280px 320px;
+  grid-template-areas:
+    "editor course control"
+    "result course tutor";
   grid-template-rows: minmax(420px, auto) minmax(220px, auto);
   gap: 14px;
   padding: 14px 22px 22px;
@@ -121,15 +124,33 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   min-width: 0;
 }
 
-.course-panel { grid-row: 1 / span 2; }
-.editor-panel { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; grid-row: 1; }
-.control-panel { grid-column: 3; grid-row: 1; }
-.result-panel { grid-column: 1 / span 2; grid-row: 2; }
-.tutor-panel { grid-column: 3; grid-row: 2; }
+.course-panel { grid-area: course; }
+.editor-panel { grid-area: editor; display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; }
+.control-panel { grid-area: control; }
+.result-panel { grid-area: result; }
+.tutor-panel { grid-area: tutor; }
 
 .panel-title { margin: 0 0 10px; font-size: 14px; letter-spacing: 0.6px; color: var(--ink-soft); }
 
 .toolbox { border-right: 1px dashed var(--line); padding-right: 10px; }
+.toolbox.is-remove-target {
+  background: var(--danger-soft);
+  outline: 2px dashed var(--danger);
+  border-radius: 10px;
+}
+.toolbox.is-remove-target::after {
+  content: "松手移除积木";
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #8f2a26;
+  color: #fff;
+  z-index: 61;
+  pointer-events: none;
+}
 .toolbox-item {
   width: 100%;
   text-align: left;
@@ -218,6 +239,40 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   pointer-events: none;
 }
 .canvas-empty[hidden] { display: none; }
+
+.canvas-number-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.canvas-number-layer[hidden] { display: none; }
+.canvas-number-control {
+  position: absolute;
+  display: grid;
+  grid-template-columns: 25% minmax(0, 1fr) 25%;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #ffffff;
+  pointer-events: auto;
+}
+.canvas-number-control > button,
+.canvas-number-control > input {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #253653;
+  text-align: center;
+}
+.canvas-number-control > button { background: #eaf0fa; cursor: pointer; }
+.canvas-number-control > button:hover:enabled { background: #d5e2f8; }
+.canvas-number-control > button:disabled { opacity: 0.45; cursor: default; }
+.canvas-number-control > input { width: 100%; background: #ffffff; appearance: textfield; }
+.canvas-number-control > input::-webkit-inner-spin-button { appearance: none; }
+.canvas-number-control > :focus-visible { outline: 2px solid #2455b1; outline-offset: -2px; }
 
 .mirror-host {
   position: absolute;
@@ -369,32 +424,31 @@ dialog::backdrop { background: rgba(20, 33, 56, 0.42); }
   font-size: 12px;
 }
 
-@media (max-width: 1279px) {
+@media (width < 1280px) {
   .workspace {
-    grid-template-columns: 250px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 250px;
+    grid-template-areas:
+      "editor course"
+      "editor control"
+      "result result"
+      "tutor tutor";
     grid-template-rows: auto auto auto auto;
   }
-  .course-panel { grid-column: 1; grid-row: 1; }
-  .editor-panel { grid-column: 2; grid-row: 1; grid-template-columns: 140px minmax(0, 1fr); }
-  .control-panel { grid-column: 1; grid-row: 2; }
-  .result-panel { grid-column: 1 / span 2; grid-row: 3; }
-  .tutor-panel { grid-column: 1 / span 2; grid-row: 4; }
+  .editor-panel { grid-template-columns: 140px minmax(0, 1fr); }
 }
 
-@media (max-width: 1023px) {
+@media (width < 1024px) {
   .viewport-notice { display: block; }
   .workspace {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "editor"
+      "course"
+      "control"
+      "result"
+      "tutor";
     grid-template-rows: none;
     padding: 12px;
-  }
-  .course-panel,
-  .editor-panel,
-  .control-panel,
-  .result-panel,
-  .tutor-panel {
-    grid-column: 1;
-    grid-row: auto;
   }
   .editor-panel { grid-template-columns: 130px minmax(0, 1fr); }
   .startup-banner {

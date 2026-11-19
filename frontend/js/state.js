@@ -11,6 +11,7 @@ export const state = {
   activeTaskId: "main",
   root: null,
   dirty: false,
+  programRevision: 0,
   phase: "idle",
   selectedBlockId: null,
   runningBlockId: null,

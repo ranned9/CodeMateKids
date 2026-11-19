@@ -61,16 +61,25 @@ def test_target_version_locked() -> None:
     assert exc.value.code == "PYTHON_VERSION_MISMATCH"
 
 
-def test_field_type_mismatch_rejected() -> None:
+@pytest.mark.parametrize("times", ["4", 2.5, 2.0, True])
+def test_repeat_count_requires_integer(times) -> None:
     root = node(
         "b-start",
         "event.start",
         {},
-        nxt=node("b-repeat", "control.repeat", {"times": "4"}, body=[node("b-move", "motion.move", {"steps": 1})]),
+        nxt=node("b-repeat", "control.repeat", {"times": times}, body=[node("b-move", "motion.move", {"steps": 1})]),
     )
     with pytest.raises(ProgramError) as exc:
         validate_program(program(root))
     assert exc.value.code == "PROGRAM_SCHEMA_INVALID"
+    assert exc.value.block_id == "b-repeat"
+    assert "整数" in exc.value.message
+
+
+@pytest.mark.parametrize("times", [1, 100])
+def test_repeat_count_accepts_integer_boundaries(times: int) -> None:
+    root = node("b-repeat", "control.repeat", {"times": times})
+    assert validate_program(program(root)).node_count == 1
 
 
 def test_required_expression_missing_rejected() -> None:

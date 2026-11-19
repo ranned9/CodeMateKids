@@ -1,4 +1,4 @@
-"""0.2.0 课程内容收窄：两个任务只保留 5 个有落点的语句积木。"""
+"""循环课程的可用积木集合与内容版本。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ EXPECTED_KINDS = {
     "motion.move",
     "motion.turn",
     "look.say",
+    "text.print",
+    "value.number",
+    "value.calc",
 }
 
 
@@ -27,11 +30,10 @@ def tasks() -> list[dict]:
     return course()["tasks"]
 
 
-def test_allowed_kinds_narrowed() -> None:
+def test_allowed_kinds_include_expression_inputs_and_host() -> None:
     for task in tasks():
         kinds = set(task["allowedBlockKinds"])
         assert kinds == EXPECTED_KINDS, task["taskId"]
-        assert not any(kind.startswith("value.") for kind in kinds), task["taskId"]
 
 
 def test_allowed_kinds_all_runnable() -> None:
@@ -47,7 +49,7 @@ def test_content_version_incremented() -> None:
     value = course()["contentVersion"]
     assert re.match(r"^\d+\.\d+\.\d+$", value)
     parts = tuple(int(item) for item in value.split("."))
-    assert parts > (1, 0, 0)
+    assert parts > (1, 1, 0)
 
 
 def test_value_blocks_definition_retained() -> None:

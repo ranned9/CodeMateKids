@@ -5,7 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-CURRENT_FORMAT_VERSION = 1
+CURRENT_FORMAT_VERSION = 2
+MIN_SUPPORTED_FORMAT_VERSION = 1
 
 
 class MigrationError(ValueError):
@@ -23,9 +24,15 @@ def migrate_0_to_1(program: dict[str, Any]) -> dict[str, Any]:
     if "courseRef" not in migrated:
         if not isinstance(course, dict):
             raise MigrationError("旧版文件缺少课程引用")
+        version = course.get("version", 1)
+        if isinstance(version, str):
+            try:
+                version = int(version)
+            except ValueError as exc:
+                raise MigrationError("旧版课程版本不对") from exc
         migrated["courseRef"] = {
             "courseId": course.get("courseId", ""),
-            "version": int(course.get("version", 1)),
+            "version": version,
             "taskId": course.get("taskId", ""),
         }
     migrated.setdefault("root", None)
@@ -50,7 +57,7 @@ def migrate_program(program: dict[str, Any]) -> tuple[dict[str, Any], int]:
     original = version
     current = deepcopy(program)
     guard = 0
-    while version < CURRENT_FORMAT_VERSION and guard < 10:
+    while version < MIN_SUPPORTED_FORMAT_VERSION and guard < 10:
         guard += 1
         migration = MIGRATIONS.get(version)
         if migration is None:

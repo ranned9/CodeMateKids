@@ -16,7 +16,7 @@ PORT_TYPES = (
     "handler",
 )
 OUTPUT_TYPES = ("statement", "expression", "boolean", "pattern", "handler")
-FIELD_TYPES = ("number", "string", "name", "boolean", "choice", "expression")
+FIELD_TYPES = ("number", "integer", "string", "name", "boolean", "choice", "expression")
 
 
 class BlockSchemaError(ValueError):

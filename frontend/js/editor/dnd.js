@@ -1,10 +1,13 @@
 /** 拖放：稳定目标解析、单指针会话、统一清理与事务提交。 */
 import { pickNode } from "./layout.js";
-import { EXPR_SLOTS_ENABLED, normalizeTargetId, resolveDropTarget } from "./targets.js";
-import { findBlock, isTargetAlive } from "./model.js";
+import { pointInRect, resolveDropTarget } from "./targets.js";
+import { findBlock, walkNodes, workspaceStacks } from "./model.js";
+import { clampStackPosition, isWorkspaceTargetAlive, workspaceOwnerId } from "./workspace.js";
 
 const PREVIEW_OFFSET_X = 90;
 const PREVIEW_OFFSET_Y = 20;
+const FREE_DROP_SNAP = 12;
+const EDITABLE_PHASES = new Set(["editing", "result", "error"]);
 
 export const CLICK_MOVE_THRESHOLD = 6;
 
@@ -22,10 +25,11 @@ export function exceedsThreshold(startClient, currentClient, threshold = CLICK_M
 export class DndController {
   /**
    * @param {any} editor EditorView
-   * @param {{env?:any}} [options]
+   * @param {{env?:any,toolbox?:HTMLElement}} [options]
    */
   constructor(editor, options = {}) {
     this.editor = editor;
+    this.toolbox = options.toolbox;
     this.session = null;
     const env = options.env || {};
     this.env = {
@@ -66,7 +70,6 @@ export class DndController {
       return;
     }
     const block = (this.editor.layout.blocks || []).find((item) => item.node.blockId === node.blockId);
-    const section = this.editor.layout.sections?.[node.blockId];
     const field = (block?.fields || []).find(
       (item) =>
         point.x >= item.rect.x &&
@@ -75,36 +78,20 @@ export class DndController {
         point.y <= item.rect.y + item.rect.h,
     );
     if (field) {
-      const value = block.node.inputs?.[field.name];
-      if (field.valueType === "expression" && EXPR_SLOTS_ENABLED && value?.blockId) {
-        this.startBlockDrag(value.blockId, event);
-        return;
-      }
       if (field.valueType !== "expression") {
+        event.preventDefault();
         this.editor.startFieldEdit(block.node.blockId, field.name);
-        return;
+      } else {
+        this.editor.selectBlock(node.blockId);
       }
       return;
-    }
-    if (section && section.bodyBox) {
-      const inBody =
-        point.x >= section.bodyBox.x &&
-        point.x <= section.bodyBox.x + section.bodyBox.w &&
-        point.y >= section.bodyBox.y &&
-        point.y <= section.bodyBox.y + section.bodyBox.h;
-      const hasChildren = (block?.node.body || []).length > 0;
-      if (inBody && !hasChildren && node.blockId === block?.node.blockId) {
-        this.editor.selectBlock(node.blockId);
-        this.startBlockDrag(node.blockId, event);
-        return;
-      }
     }
     this.editor.selectBlock(node.blockId);
     this.startBlockDrag(node.blockId, event);
   }
 
   startToolboxDrag(kind, event, sourceElement) {
-    if (this.session) {
+    if (this.session || (event.button != null && event.button !== 0)) {
       return;
     }
     const definition = this.editor.state.blocksByKind.get(kind);
@@ -150,7 +137,7 @@ export class DndController {
       this.editor.toast(this.editor.state.readonlyReason || "这个作品现在只能看。");
       return;
     }
-    if (this.editor.state.phase !== "editing") {
+    if (!EDITABLE_PHASES.has(this.editor.state.phase)) {
       this.editor.toast("程序正在运行，可以先停止再修改。");
       return;
     }
@@ -159,6 +146,11 @@ export class DndController {
     }
     const startPoint = this.editor.pointFromEvent(event);
     const startClient = { x: event.clientX ?? 0, y: event.clientY ?? 0 };
+    const stack = workspaceStacks(this.editor.state.root).find((item) => item.root.blockId === drag.blockId);
+    const movingIds = new Set();
+    walkNodes(findBlock(this.editor.state.root, drag.blockId), (node) => movingIds.add(node.blockId));
+    const movesTail = Boolean(stack) || Array.isArray(this.editor.state.root);
+    const rect = this.editor.layout.nodes?.find((node) => node.blockId === drag.blockId)?.rect;
     const session = {
       pointerId: event.pointerId ?? 1,
       pointerType: event.pointerType || "mouse",
@@ -172,9 +164,14 @@ export class DndController {
       captureOk: false,
       startClient,
       startPoint,
+      offset: rect ? { x: startPoint.x - rect.x, y: startPoint.y - rect.y } : { x: 16, y: 16 },
+      stackOwner: stack ? workspaceOwnerId(this.editor.state.root, stack) : null,
+      movingIds,
+      movesTail,
       lastClient: { ...startClient },
       lastPoint: startPoint,
       moved: false,
+      overToolbox: false,
       mode: "pressed",
       threshold: CLICK_MOVE_THRESHOLD,
       lastResult: null,
@@ -208,11 +205,6 @@ export class DndController {
       // 源元素可能已被重渲染，样式失败不影响拖动。
     }
 
-    if (session.origin === "canvas") {
-      session.lastResult = this.buildPreview(session.startPoint, session);
-      this.editor.setPreview(session.lastResult);
-      this.announceResult(null, session.lastResult);
-    }
   }
 
   resolveCaptureTarget(source, pointerId) {
@@ -237,22 +229,54 @@ export class DndController {
     const context = {
       definition: session.definition,
       schema: this.editor.state.schema,
+      numberValue: session.kind === "value.number" && session.blockId
+        ? findBlock(this.editor.state.root, session.blockId)?.inputs?.value
+        : undefined,
       movingBlockId: session.blockId,
       viewport: {
         w: this.editor.width,
         h: this.editor.height,
+        scrollX: this.editor.scrollX,
         scrollY: this.editor.scrollY,
       },
-      exprSlotsEnabled: EXPR_SLOTS_ENABLED,
+      allowTarget: (target) => {
+        const nestedOwner = /^(body|expr):/.test(target.containerRef) ? target.containerRef.slice(5) : null;
+        const anchorId = target.anchorRef?.startsWith("after:") ? target.anchorRef.slice(6) : null;
+        if (target.containerRef === session.stackOwner ||
+            (session.movesTail && (session.movingIds.has(nestedOwner) || session.movingIds.has(anchorId)))) {
+          return false;
+        }
+        if (session.kind === "event.start") {
+          const first = this.editor.layout.nodes.find((node) => node.ownerId === target.containerRef && node.order === 0);
+          return target.portType === "statement-next" && target.anchorRef === "start" && first?.kind !== "event.start";
+        }
+        return true;
+      },
       isSelfNest: (containerRef) => {
         if (!session.blockId) {
           return false;
         }
-        const targetId = containerRef.startsWith("body:") ? containerRef.slice(5) : null;
+        const targetId = /^(body|expr):/.test(containerRef) ? containerRef.slice(5) : null;
         return targetId ? this.editor.isInsideSubtree(session.blockId, targetId) : false;
       },
     };
     const result = resolveDropTarget(this.editor.layout, point, context);
+    const node = pickNode(this.editor.layout, point);
+    const blank = !node || node.blockId === session.blockId || session.movingIds?.has(node.blockId);
+    const nearSocket = result.target && pointInRect(point, result.target.rect, result.valid ? FREE_DROP_SNAP : 0);
+    if (result.reason !== "OUTSIDE_CANVAS" && (!this.editor.layout.nodes?.length || (blank && !nearSocket))) {
+      const offset = session.offset || { x: 16, y: 16 };
+      const freePosition = clampStackPosition({ x: point.x - offset.x, y: point.y - offset.y });
+      return {
+        ...freePosition,
+        freePosition,
+        blockId: session.blockId,
+        movingIds: session.movingIds,
+        valid: true,
+        target: null,
+        kind: session.kind,
+      };
+    }
     return {
       ...result,
       x: point.x - PREVIEW_OFFSET_X,
@@ -261,12 +285,24 @@ export class DndController {
     };
   }
 
+  isToolboxDrop(session) {
+    if (session.origin !== "canvas" || !session.blockId || !this.toolbox) {
+      return false;
+    }
+    const { x, y } = session.lastClient;
+    // 指针捕获会让事件目标仍指向画布，按实际坐标检查工具箱。
+    return this.toolbox.contains(this.toolbox.ownerDocument.elementFromPoint(x, y));
+  }
+
   onMove(event) {
     const session = this.session;
     if (!session || session.disposed || event.pointerId !== session.pointerId) {
       return;
     }
     session.lastClient = { x: event.clientX ?? 0, y: event.clientY ?? 0 };
+    if (!session.moved && !exceedsThreshold(session.startClient, session.lastClient, session.threshold)) {
+      return;
+    }
     session.lastPoint = this.editor.pointFromEvent(event);
     if (!session.moved) {
       session.moved = true;
@@ -274,6 +310,19 @@ export class DndController {
     }
     if (event.cancelable && typeof event.preventDefault === "function") {
       event.preventDefault();
+    }
+    const overToolbox = this.isToolboxDrop(session);
+    if (overToolbox !== session.overToolbox) {
+      session.overToolbox = overToolbox;
+      this.toolbox.classList.toggle("is-remove-target", overToolbox);
+      if (overToolbox) {
+        session.lastResult = null;
+        this.editor.setPreview(null);
+        this.editor.announceDrag?.("松手移除积木");
+      }
+    }
+    if (overToolbox) {
+      return;
     }
     const previous = session.lastResult;
     session.lastResult = this.buildPreview(session.lastPoint, session);
@@ -286,21 +335,39 @@ export class DndController {
     if (!session || session.disposed || event.pointerId !== session.pointerId) {
       return;
     }
-    const finalPoint = this.editor.pointFromEvent(event);
     session.lastClient = { x: event.clientX ?? 0, y: event.clientY ?? 0 };
-    this.finishDrag(session, finalPoint);
+    if (!session.moved && !exceedsThreshold(session.startClient, session.lastClient, session.threshold)) {
+      this.teardown("click");
+      if (session.origin === "toolbox") {
+        this.editor.insertFromToolbox(session.kind);
+      }
+      return;
+    }
+    this.finishDrag(session, this.editor.pointFromEvent(event));
   }
 
   finishDrag(session, finalPoint) {
     let outcome = "cancelled";
     let message = "";
     let targetId = null;
+    const remove = this.isToolboxDrop(session);
     try {
+      if (remove) {
+        if (this.editor.deleteBlock(session.blockId)) {
+          outcome = "removed";
+          this.editor.toast("积木已移除，可按 Ctrl+Z 撤销。");
+        }
+        return;
+      }
       const finalResult = this.buildPreview(finalPoint, session);
       this.editor.setPreview(finalResult);
       targetId = finalResult.target?.id ?? null;
       if (finalResult.reason === "OUTSIDE_CANVAS") {
         outcome = "cancelled";
+        return;
+      }
+      if (finalResult.freePosition) {
+        outcome = this.editor.commitDrop(session.blockId, session.kind, finalResult) ? "committed" : "failed";
         return;
       }
       if (!finalResult.target) {
@@ -313,8 +380,7 @@ export class DndController {
         message = finalResult.message || "这个位置不能放积木。";
         return;
       }
-      const normalized = normalizeTargetId(targetId);
-      if (!normalized || !isTargetAlive(this.editor.state.root, targetId)) {
+      if (!isWorkspaceTargetAlive(this.editor.state.root, targetId)) {
         outcome = "rejected";
         message = "这个位置刚刚变了，请再拖一次。";
         return;
@@ -323,7 +389,7 @@ export class DndController {
       outcome = committed ? "committed" : "failed";
     } catch (error) {
       outcome = "commit-error";
-      message = "这次没有放进去，请再试一次。";
+      message = remove ? "积木没有移除，请再试一次。" : "这次没有放进去，请再试一次。";
     } finally {
       this.teardown(outcome, message, { targetId, point: finalPoint });
     }
@@ -381,6 +447,9 @@ export class DndController {
     }
 
     this.session = null;
+    if (session.overToolbox) {
+      this.toolbox.classList.remove("is-remove-target");
+    }
     this.editor.setPreview(null);
     this.editor.announceDrag?.("");
     if ((reason === "rejected" || reason === "commit-error") && message) {
