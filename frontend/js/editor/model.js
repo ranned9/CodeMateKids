@@ -1,4 +1,5 @@
 /** 程序模型树操作：节点创建、查找、事务化挂接、摘除与序列化。 */
+import { numericFieldError, numberForNewBlock } from "./connector.js";
 
 let idCounter = 0;
 export const STACK_START = { x: 30, y: 26 };
@@ -15,7 +16,7 @@ export function newId() {
 /**
  * @param {any} definition
  */
-export function createBlock(definition) {
+export function createBlock(definition, blockId = newId()) {
   const inputs = {};
   for (const field of definition.fields || []) {
     if (field.valueType === "expression") {
@@ -33,7 +34,7 @@ export function createBlock(definition) {
     }
   }
   return {
-    blockId: newId(),
+    blockId,
     kind: definition.kind,
     inputs,
     body: [],
@@ -244,11 +245,24 @@ export function attachToRoot(root, node) {
  * @param {string} fieldName
  * @param {any} node
  */
-export function attachToSlot(owner, fieldName, node) {
+export function attachToSlot(owner, fieldName, node, { definitions, fromToolbox = false } = {}) {
   if (!owner || !fieldName) {
     const error = new Error("INVALID_FIELD");
     error.code = "INVALID_FIELD";
     throw error;
+  }
+  const field = definitions?.get(owner.kind)?.fields?.find((item) => item.name === fieldName);
+  if (field?.acceptsNumberBlock) {
+    if (node.kind !== "value.number") {
+      throw new Error("这个位置只接收数字积木。");
+    }
+    if (fromToolbox) {
+      node.inputs.value = numberForNewBlock(field, node.inputs.value, numberInputValue(owner.inputs?.[fieldName]));
+    }
+    const message = numericFieldError(field, node.inputs.value);
+    if (message) {
+      throw new Error(message);
+    }
   }
   node.next = null;
   delete node.fieldName;
@@ -465,9 +479,9 @@ export function planDrop(root, { blockId, definition, definitions, targetId }) {
         return { ok: false, message: "不能把积木放进它自己里面。", root };
       }
       try {
-        attachToSlot(workOwner, ref.field, node);
+        attachToSlot(workOwner, ref.field, node, { definitions });
       } catch (error) {
-        return { ok: false, message: "这个位置不能放积木。", root };
+        return { ok: false, message: error.message, root };
       }
       if (!checkLocalStructure(work).ok) {
         return { ok: false, message: "这个积木已经在程序里了。", root };
@@ -479,9 +493,9 @@ export function planDrop(root, { blockId, definition, definitions, targetId }) {
     }
     node = createBlock(definition);
     try {
-      attachToSlot(workOwner, ref.field, node);
+      attachToSlot(workOwner, ref.field, node, { definitions, fromToolbox: true });
     } catch (error) {
-      return { ok: false, message: "这个位置不能放积木。", root };
+      return { ok: false, message: error.message, root };
     }
     return { ok: true, message: "", root: work, node };
   }
@@ -637,6 +651,13 @@ export function validateTree(root) {
         } else if (value === "" || value == null) {
           invalidIds.add(node.blockId);
           issues.push({ blockId: node.blockId, kind: node.kind, message: "这个位置还需要填内容" });
+        } else if (field.acceptsNumberBlock) {
+          const message = numericFieldError(field, numberInputValue(value));
+          if (message) {
+            const blockId = value?.blockId || node.blockId;
+            invalidIds.add(blockId);
+            issues.push({ blockId, kind: node.kind, message });
+          }
         }
       }
     });

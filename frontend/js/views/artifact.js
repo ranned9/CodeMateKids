@@ -5,6 +5,9 @@ import { appendParagraph, clearNode } from "../util/dom.js";
 export function resetDerivedState(state, dom = {}) {
   state.lastResult = null;
   state.lastRunStatus = null;
+  state.lastRunContext = null;
+  state.lastResultOwnership = null;
+  state.runIssue = "";
   state.errorBlockId = null;
   state.runningBlockId = null;
   state.highestHint = 0;
@@ -13,6 +16,8 @@ export function resetDerivedState(state, dom = {}) {
   state.dirty = false;
   state.runRecovery = null;
   state.readonlyReason = "";
+  state.saveStateSaving = false;
+  state.saveError = null;
 
   if (dom["prediction-compare"]) {
     dom["prediction-compare"].hidden = true;
@@ -31,6 +36,15 @@ export function resetDerivedState(state, dom = {}) {
   if (dom["result-content"]) {
     clearNode(dom["result-content"]);
     appendParagraph(dom["result-content"], "运行一次，就能看到结果啦。", "muted");
+  }
+  if (dom["result-detail-content"]) {
+    clearNode(dom["result-detail-content"]);
+  }
+  if (dom["tutor-message"]) {
+    clearNode(dom["tutor-message"]);
+    appendParagraph(dom["tutor-message"], "需要帮忙时，可以请小老师给一点提示。", "muted");
+    dom["tutor-input"].value = "";
+    clearNode(dom["tutor-detail"]);
   }
 }
 
@@ -78,6 +92,7 @@ export function applyArtifact({
   editor.setProgram(state.root, { clearHistory: true, notify: false });
   state.dirty = false;
   state.savedSnapshot = cloneTree(state.root);
+  state.lastSavedRevision = state.programRevision;
   renderAll("artifact");
   if (runner) {
     runner.updateControls();

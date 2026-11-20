@@ -1,4 +1,5 @@
 /** 工具箱：积木分类与添加。 */
+import { drawToolboxBlock } from "../editor/render.js";
 
 const CATEGORY_ORDER = ["开始", "动作", "循环", "显示", "运算", "其他"];
 let activeCategory = "全部";
@@ -111,12 +112,22 @@ function buildItem(definition, callbacks, blocked = false) {
     ? `${definition.displayName}，不能运行。`
     : `${definition.displayName}，可拖动，点击或按 Enter 添加。`;
   button.setAttribute("aria-label", label);
-  const strong = document.createElement("strong");
-  strong.textContent = definition.displayName;
-  const small = document.createElement("small");
-  small.textContent = definition.blockedHint || "";
-  button.appendChild(strong);
-  button.appendChild(small);
+  button.title = definition.blockedHint || definition.displayName;
+  const artwork = document.createElement("canvas");
+  if (!blocked && drawToolboxBlock(artwork, definition)) {
+    artwork.className = "toolbox-block-art";
+    artwork.setAttribute("aria-hidden", "true");
+    button.appendChild(artwork);
+  } else {
+    const name = document.createElement("strong");
+    name.textContent = definition.displayName;
+    button.appendChild(name);
+    if (blocked && definition.blockedHint) {
+      const hint = document.createElement("small");
+      hint.textContent = definition.blockedHint;
+      button.appendChild(hint);
+    }
+  }
   if (!blocked) {
     button.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) {

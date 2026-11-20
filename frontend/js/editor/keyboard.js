@@ -1,12 +1,33 @@
-/** 键盘与可访问性操作：聚焦、选择、移动、运行、求助、读取错误。 */
+/** 键盘作用域：焦点在按钮/表单/链接/面板控件时交给控件处理，不吞掉输入框 Escape。 */
+
+const FIELD_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+const INTERACTIVE_TAGS = new Set(["BUTTON", "A", "INPUT", "TEXTAREA", "SELECT", "SUMMARY"]);
+
+export function isFieldTarget(target) {
+  return Boolean(target && (FIELD_TAGS.has(target.tagName) || target.isContentEditable === true));
+}
+
+export function isInteractiveTarget(target) {
+  if (!target) {
+    return false;
+  }
+  if (INTERACTIVE_TAGS.has(target.tagName) || target.isContentEditable === true) {
+    return true;
+  }
+  return target.getAttribute?.("role") === "button";
+}
 
 export function attachKeyboard(editor, handlers) {
   document.addEventListener("keydown", (event) => {
-    const tag = event.target?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+    const target = event.target;
+    if (isFieldTarget(target)) {
       if (event.key === "Escape") {
         editor.cancelFieldEdit();
       }
+      return;
+    }
+    const inMirror = Boolean(target?.dataset?.blockId && editor.mirror?.contains(target));
+    if (isInteractiveTarget(target) && (!inMirror || event.key === "Enter" || event.key === " ")) {
       return;
     }
     const ctrl = event.ctrlKey || event.metaKey;

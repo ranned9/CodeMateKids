@@ -18,7 +18,7 @@
       "taskId": "main",
       "type": "main",
       "title": "让角色走四步",
-      "objective": "用重复积木让角色向前走 4 步。角色正好走到第 4 步的位置就算完成。",
+      "objective": "让角色累计走 4 步。试着把前进积木放在重复里，再运行看看。",
       "predictionQuestion": "先猜一猜：现在的程序会让角色动几次？",
       "durationHint": "大约 5 分钟",
       "initialProgram": {
@@ -49,7 +49,7 @@
         },
         "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
       },
-      "expectedBehavior": "角色向前走到第 4 步的位置，舞台显示累计走了 4 步。",
+      "expectedBehavior": "舞台显示累计走了 4 步。练习用重复积木来执行前进动作。",
       "allowedBlockKinds": [
         "event.start",
         "control.repeat",
@@ -94,14 +94,14 @@
         {
           "level": 2,
           "action": "hint",
-          "promptText": "看看重复次数和目标步数是否一样。现在重复次数还是 2。",
-          "executableNextStep": "把重复次数改成 4 试试"
+          "promptText": "先看看每次走几步，再想想重复多少次能走 4 步。",
+          "executableNextStep": "改一个数字，运行后数一数"
         },
         {
           "level": 3,
           "action": "show_execution",
-          "promptText": "运行后，角色每动一次就亮一次。数一数一共亮了几次。",
-          "executableNextStep": "运行一次，数一数角色走了几步"
+          "promptText": "运行后，结果会告诉你角色动了几次、共走了几步。",
+          "executableNextStep": "运行一次，把实际步数和目标比一比"
         }
       ],
       "demoSolution": {
@@ -118,7 +118,7 @@
       "taskId": "variant",
       "type": "variant",
       "title": "小海龟走六步",
-      "objective": "换成小海龟，用重复积木让它向前走 6 步。走到第 6 步就算完成。",
+      "objective": "让小海龟累计走 6 步，试着用上重复积木。加练时，可以改一改它走完后说的话。",
       "predictionQuestion": "先猜一猜：小海龟这次会动几次？",
       "durationHint": "大约 4 分钟",
       "initialProgram": {
@@ -155,7 +155,7 @@
         },
         "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
       },
-      "expectedBehavior": "小海龟累计向前走 6 步，并说出完成的话。",
+      "expectedBehavior": "小海龟累计走 6 步。结束时说一句话是可选的加练。",
       "allowedBlockKinds": [
         "event.start",
         "control.repeat",
@@ -221,5 +221,5 @@
     {"themeId": "variable", "title": "变量", "status": "coming_soon"}
   ],
   "reviewStatus": "reviewed",
-  "contentVersion": "1.2.0"
+  "contentVersion": "1.2.1"
 }

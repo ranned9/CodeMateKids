@@ -76,14 +76,14 @@ class _Emitter:
             else:
                 self.emit_line(f"{pad}    pass", block_id)
         elif kind == "motion.move":
-            steps = inputs.get("steps", 1)
+            steps = number_input_value(inputs.get("steps", 1))
             if isinstance(steps, bool) or not isinstance(steps, int):
                 raise CompilationError("步数需要一个整数", block_id)
             if not 1 <= steps <= 100:
                 raise CompilationError("步数超出范围", block_id)
             self.emit_line(f"{pad}stage.move({steps})", block_id)
         elif kind == "motion.turn":
-            degrees = inputs.get("degrees", 90)
+            degrees = number_input_value(inputs.get("degrees", 90))
             if degrees not in (90, 180, 270):
                 raise CompilationError("角度还不能用", block_id)
             self.emit_line(f"{pad}stage.turn({int(degrees)})", block_id)

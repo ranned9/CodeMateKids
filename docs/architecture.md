@@ -26,6 +26,7 @@ flowchart LR
 | [frontend/js/workflows/](../frontend/js/workflows/) | `projects.js` 负责作品保存、打开与未保存修改确认，`course.js` 负责课程装入、版本刷新及重试 |
 | [frontend/js/views/](../frontend/js/views/) | 展示课程、工具箱、画布、结果与辅导，`artifact.js` 统一应用作品和任务的编辑区状态，`runner.js` 管理运行、停止、SSE 与断线恢复 |
 | [frontend/js/editor/](../frontend/js/editor/) 与 [core/](../frontend/js/core/) | 编辑器负责程序树、连接、几何、拖放和撤销，`core/` 提供运行门禁、会话和异步响应归属规则 |
+| [frontend/js/ux/](../frontend/js/ux/) | 0.4.0 派生层：断点模式、面板与焦点、唯一主操作、运行快照与归属、结果摘要、目标刻度、保存四态、系统信息与总结分段；只消费既有能力，不改编辑器内核 |
 | [backend/app.py](../backend/app.py) 与 [api/](../backend/api/) | 应用工厂、静态文件托管、路由、入参模型与错误包封 |
 | [backend/service/](../backend/service/) | 课程加载与缓存、启动检查、作品保存与迁移入口以及运行编排 |
 | [backend/domain/](../backend/domain/) 与 [runner/](../backend/runner/) | 领域层维护积木定义、程序校验和迁移，运行层负责代码生成、执行策略、资源限制和进程通信 |

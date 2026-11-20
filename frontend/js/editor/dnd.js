@@ -1,7 +1,8 @@
 /** 拖放：稳定目标解析、单指针会话、统一清理与事务提交。 */
 import { pickNode } from "./layout.js";
 import { pointInRect, resolveDropTarget } from "./targets.js";
-import { findBlock, walkNodes, workspaceStacks } from "./model.js";
+import { findBlock, numberInputValue, walkNodes, workspaceStacks } from "./model.js";
+import { numberForNewBlock } from "./connector.js";
 import { clampStackPosition, isWorkspaceTargetAlive, workspaceOwnerId } from "./workspace.js";
 
 const PREVIEW_OFFSET_X = 90;
@@ -277,11 +278,23 @@ export class DndController {
         kind: session.kind,
       };
     }
+    const target = result.target;
+    let numberValue;
+    if (session.kind === "value.number" && !session.blockId && target?.numberField) {
+      const defaultNumber = session.definition.fields.find((field) => field.name === "value")?.defaultValue;
+      const owner = findBlock(this.editor.state.root, target.ownerId);
+      const placedNumber = numberForNewBlock(target.numberField, defaultNumber, numberInputValue(owner?.inputs?.[target.field]));
+      if (placedNumber !== defaultNumber) {
+        numberValue = placedNumber;
+      }
+    }
     return {
       ...result,
       x: point.x - PREVIEW_OFFSET_X,
       y: point.y - PREVIEW_OFFSET_Y,
       kind: session.kind,
+      blockId: session.blockId,
+      numberValue,
     };
   }
 

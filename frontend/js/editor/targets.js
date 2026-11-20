@@ -170,7 +170,7 @@ export function buildTargets(layout, { exprSlotsEnabled = false } = {}) {
           visible: node.visible,
           ownerId: node.blockId,
           field: field.name,
-          numberRange: field.acceptsNumberBlock ? field.range : null,
+          numberField: field.acceptsNumberBlock ? field : null,
         });
       }
     }
@@ -253,7 +253,7 @@ export function resolveDropTarget(layout, point, ctx = {}) {
   const targets = (layout.targets || []).filter((target) => target.visible && (!ctx.allowTarget || ctx.allowTarget(target)));
 
   let candidates = targets
-    .filter((target) => pointInRect(point, target.rect, target.numberRange ? 0 : HIT_PAD))
+    .filter((target) => pointInRect(point, target.rect, target.numberField ? 0 : HIT_PAD))
     .map((target) => ({ target, ...gapOf(point, target.rect) }));
 
   if (candidates.length === 0 && !layout.nodes?.length && targets[0]?.id === "root@start") {

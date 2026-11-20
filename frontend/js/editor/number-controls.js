@@ -1,5 +1,5 @@
-/** 让画布上的数字与次数使用可见的原生输入控件。 */
-import { pickNode } from "./layout.js";
+/** 数字积木和数值插槽共用可直接输入的控件。 */
+import { numberControlRect, pickNode } from "./layout.js";
 
 export class NumberControls {
   constructor(editor) {
@@ -34,10 +34,8 @@ export class NumberControls {
       if (!field) {
         continue;
       }
-      const { x, y, w, h } = field.rect;
-      const left = x + Math.min(43, Math.floor(w * 0.38));
-      const controlWidth = Math.min(106, w - (left - x) - 4);
-      const hit = pickNode(layout, { x: left + controlWidth / 2, y: y + h / 2 });
+      const { x, y, w, h } = numberControlRect(field.rect);
+      const hit = pickNode(layout, { x: x + w / 2, y: y + h / 2 });
       if (hit?.blockId !== node.blockId) {
         continue;
       }
@@ -47,24 +45,26 @@ export class NumberControls {
       const value = node.inputs?.[field.name];
       const inputField = this.editor.fieldForEdit(node.blockId, field);
       const { min, max } = inputField.range || {};
+      const choices = inputField.choices;
       control.editable = editable;
-      control.min = min;
-      control.max = max;
+      control.min = min ?? choices?.[0];
+      control.max = max ?? choices?.at(-1);
+      control.choices = choices;
       if (control.value !== value || document.activeElement !== input) {
         input.value = String(value ?? "");
       }
       control.value = value;
       input.disabled = !editable;
-      input.min = min ?? "";
-      input.max = max ?? "";
-      input.step = inputField.valueType === "integer" ? "1" : "any";
-      input.inputMode = inputField.valueType === "integer" ? "numeric" : "decimal";
-      decrease.disabled = !editable || (min != null && value <= min);
-      increase.disabled = !editable || (max != null && value >= max);
-      element.style.left = `${(left - scrollX) * scaleX}px`;
-      element.style.top = `${(y + 2 - scrollY) * scaleY}px`;
-      element.style.width = `${controlWidth * scaleX}px`;
-      element.style.height = `${(h - 4) * scaleY}px`;
+      input.min = control.min ?? "";
+      input.max = control.max ?? "";
+      input.step = inputField.valueType === "number" ? "any" : "1";
+      input.inputMode = inputField.valueType === "number" ? "decimal" : "numeric";
+      decrease.disabled = !editable || (control.min != null && value <= control.min);
+      increase.disabled = !editable || (control.max != null && value >= control.max);
+      element.style.left = `${(x - scrollX) * scaleX}px`;
+      element.style.top = `${(y - scrollY) * scaleY}px`;
+      element.style.width = `${w * scaleX}px`;
+      element.style.height = `${h * scaleY}px`;
       visible.add(node.blockId);
     }
     for (const [id, control] of this.controls) {
@@ -88,7 +88,7 @@ export class NumberControls {
   create(blockId, fieldName) {
     const element = document.createElement("div");
     element.className = "canvas-number-control";
-    const label = fieldName === "times" ? "重复次数" : "数字的数值";
+    const label = { times: "重复次数", steps: "步数", degrees: "角度", value: "数字的数值" }[fieldName] || fieldName;
     const input = document.createElement("input");
     input.type = "number";
     input.setAttribute("aria-label", label);
@@ -114,6 +114,11 @@ export class NumberControls {
       input.value = String(control.value ?? "");
     };
     const step = (delta) => {
+      if (control.choices) {
+        const next = control.choices[control.choices.indexOf(control.value) + delta];
+        if (next != null) commit(String(next));
+        return;
+      }
       const value = Math.min(control.max ?? Infinity, Math.max(control.min ?? -Infinity, control.value + delta));
       commit(String(value));
     };

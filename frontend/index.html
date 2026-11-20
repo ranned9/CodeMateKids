@@ -13,58 +13,49 @@
       <span class="brand-name">小小编程课堂</span>
       <span class="brand-sub">AI 编程小老师</span>
     </div>
-    <div class="status-bar" id="status-bar" role="status" aria-live="polite">
+    <div class="header-actions">
+      <span class="save-state" id="save-state" role="status" aria-live="polite">还没保存</span>
+      <button type="button" class="ghost-button" id="task-list-trigger" data-panel-trigger="taskList" aria-controls="task-list-panel" aria-expanded="false">其他任务</button>
+      <button type="button" class="ghost-button" id="summary-open">学习总结</button>
+      <button type="button" class="ghost-button" id="save-project">保存作品</button>
+      <button type="button" class="ghost-button" id="open-project">打开作品</button>
+      <button type="button" class="ghost-button" id="system-info-trigger" data-panel-trigger="systemInfo" aria-controls="system-info" aria-expanded="false">系统信息</button>
+      <input type="file" id="project-file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <section class="system-info" id="system-info" data-panel="systemInfo" hidden aria-label="系统信息">
+    <div class="panel-head">
+      <h2 class="panel-title">系统信息</h2>
+    </div>
+    <div class="system-info-body" id="system-info-body"></div>
+    <div class="system-info-chips">
       <span class="status-chip" id="python-chip">Python 版本检查中…</span>
       <span class="status-chip" id="version-chip">课程 / schema 版本检查中…</span>
       <span class="status-chip mode-chip" id="mode-chip">辅导模式检查中…</span>
       <span class="status-chip" id="run-state-chip">准备中</span>
     </div>
-    <div class="header-actions">
-      <button type="button" class="ghost-button" id="summary-open">学习总结</button>
-      <button type="button" class="ghost-button" id="save-project">保存作品</button>
-      <button type="button" class="ghost-button" id="open-project">打开作品</button>
-      <input type="file" id="project-file" accept=".json,application/json" hidden>
-    </div>
-  </header>
+  </section>
 
   <section class="startup-banner" id="startup-banner" aria-live="polite">
-    <div class="startup-title" id="startup-title">正在准备课堂…</div>
-    <ul class="startup-checks" id="startup-checks"></ul>
-    <div class="startup-actions">
-      <button type="button" class="primary-button" id="startup-retry">重新检查</button>
-      <button type="button" class="ghost-button" id="startup-enter">进入课堂</button>
+    <div class="startup-head">
+      <div class="startup-title" id="startup-title">正在准备课堂…</div>
+      <div class="startup-actions">
+        <button type="button" class="primary-button" id="startup-retry">重新检查</button>
+        <button type="button" class="ghost-button" id="startup-enter">进入课堂</button>
+        <button type="button" class="ghost-button" id="startup-details-trigger" data-panel-trigger="startupDetails" aria-controls="startup-checks" aria-expanded="true">检查明细</button>
+      </div>
     </div>
+    <ul class="startup-checks" id="startup-checks" data-panel="startupDetails"></ul>
   </section>
 
   <p class="viewport-notice" role="status">建议窗口至少 1024×768</p>
 
   <main class="workspace" id="workspace">
-    <section class="panel editor-panel" aria-label="积木工作区">
-      <div class="toolbox" id="toolbox" aria-label="工具箱">
-        <h2 class="panel-title">工具箱</h2>
-        <div id="toolbox-list"></div>
+    <section class="panel course-panel" id="course-panel" aria-label="课程区 · 当前任务">
+      <div class="panel-head">
+        <h2 class="panel-title">当前任务</h2>
       </div>
-      <div class="canvas-wrap">
-        <div class="canvas-toolbar">
-          <span class="canvas-title" id="canvas-title">积木画布</span>
-          <span class="canvas-tip">拖到空白处另起一组，靠近插口可以接上</span>
-        </div>
-        <div class="canvas-stage">
-          <canvas id="block-canvas" width="720" height="460" aria-label="积木画布"></canvas>
-          <div class="canvas-empty" id="canvas-empty">
-            从左边工具箱拖一个积木开始吧
-          </div>
-        </div>
-        <div class="mirror-host" id="a11y-mirror" aria-label="积木语义列表"></div>
-        <div class="code-preview" aria-label="只读代码预览">
-          <div class="code-preview-head">积木对应的 Python 3.12（只读）</div>
-          <pre id="code-preview-text"></pre>
-        </div>
-      </div>
-    </section>
-
-    <aside class="panel course-panel" id="course-panel" aria-label="课程区">
-      <h2 class="panel-title">课程区</h2>
       <div id="course-content">
         <p class="muted">正在读取课程…</p>
       </div>
@@ -76,76 +67,138 @@
         </div>
         <p class="hint-text" id="prediction-feedback"></p>
       </div>
-    </aside>
-
-    <section class="panel control-panel" aria-label="运行控制">
-      <h2 class="panel-title">运行控制</h2>
-      <div class="control-row">
-        <button type="button" class="primary-button" id="run-button">运行</button>
-        <button type="button" class="danger-button" id="stop-button" disabled>停止</button>
-        <button type="button" class="ghost-button" id="reset-button">重置</button>
+      <div class="task-more">
+        <button type="button" class="chip-button" data-panel-trigger="taskList" aria-controls="task-list-panel" aria-expanded="false">其他任务</button>
+        <button type="button" class="chip-button" data-panel-trigger="learningObjectives" aria-controls="learning-objectives-panel" aria-expanded="false">学习目标</button>
+        <button type="button" class="chip-button" data-panel-trigger="otherThemes" aria-controls="other-themes-panel" aria-expanded="false">后续主题</button>
       </div>
-      <p class="hint-text" id="run-hint">先完成预测，就可以运行啦。</p>
-      <div class="object-view" aria-label="角色状态">
-        <div class="object-title">舞台</div>
-        <div class="stage-track" id="stage-track">
-          <div class="stage-actor" id="stage-actor">🐢</div>
+      <div class="sub-panel" id="task-list-panel" data-panel="taskList" hidden></div>
+      <div class="sub-panel" id="learning-objectives-panel" data-panel="learningObjectives" hidden></div>
+      <div class="sub-panel" id="other-themes-panel" data-panel="otherThemes" hidden></div>
+    </section>
+
+    <section class="panel editor-panel" aria-label="积木工作区">
+      <div class="toolbox" id="toolbox" aria-label="工具箱">
+        <h2 class="panel-title">工具箱</h2>
+        <div id="toolbox-list"></div>
+      </div>
+      <div class="canvas-wrap">
+        <div class="canvas-toolbar" id="canvas-toolbar" tabindex="-1">
+          <span class="canvas-title" id="canvas-title">积木画布</span>
+          <button type="button" class="ghost-button" id="undo-button" disabled>撤销</button>
+          <button type="button" class="ghost-button" id="redo-button" disabled>重做</button>
+          <button type="button" class="ghost-button" data-panel-trigger="codePreview" aria-controls="code-preview-panel" aria-expanded="false">看代码</button>
         </div>
-        <div class="object-meta" id="object-meta">角色还没有动过。</div>
-      </div>
-    </section>
-
-    <section class="panel result-panel" id="result-panel" aria-label="结果区">
-      <h2 class="panel-title">结果区</h2>
-      <div id="result-content">
-        <p class="muted">运行一次，就能看到结果啦。</p>
-      </div>
-      <div class="result-output" id="live-output" hidden></div>
-      <div class="prediction-compare" id="prediction-compare" hidden>
-        <div class="compare-title">预测和结果</div>
-        <div class="compare-grid">
-          <span>你的预测</span><strong id="compare-prediction">—</strong>
-          <span>实际观察</span><strong id="compare-actual">—</strong>
-          <span>是否一致</span><strong id="compare-match">—</strong>
+        <p class="undo-banner" id="undo-delete-banner" hidden>
+          已删除积木。
+          <button type="button" class="ghost-button" id="undo-delete-action">撤销删除</button>
+        </p>
+        <div class="canvas-stage">
+          <canvas id="block-canvas" width="720" height="460" aria-label="积木画布"></canvas>
+          <div class="canvas-empty" id="canvas-empty">
+            点一下工具箱里的积木，或把它拖到这里。
+          </div>
+        </div>
+        <div class="mirror-host" id="a11y-mirror" aria-label="积木语义列表"></div>
+        <div class="code-preview" id="code-preview-panel" data-panel="codePreview" hidden aria-label="只读代码预览">
+          <div class="code-preview-head">积木对应的 Python 3.12（只读）</div>
+          <pre id="code-preview-text"></pre>
         </div>
       </div>
     </section>
 
-    <section class="panel tutor-panel" id="tutor-panel" aria-label="辅导区">
-      <div class="tutor-head">
-        <h2 class="panel-title">辅导区</h2>
-        <span class="mode-badge" id="tutor-mode-badge">演示回复</span>
-      </div>
-      <div class="tutor-message" id="tutor-message">
-        <p class="muted">需要帮忙时，点下面的按钮。小老师会先给轻轻的小提示。</p>
-      </div>
-      <div class="tutor-actions">
-        <button type="button" class="ghost-button" data-choice="hint">轻提示</button>
-        <button type="button" class="ghost-button" data-choice="more_hint">更多提示</button>
-        <button type="button" class="ghost-button" data-choice="example">换个例子</button>
-        <button type="button" class="ghost-button" data-choice="self_try">我想自己试</button>
-        <button type="button" class="ghost-button" data-choice="skip">先跳过</button>
-      </div>
-      <div class="tutor-ask">
-        <label for="tutor-input">问问小老师</label>
-        <textarea id="tutor-input" rows="2" maxlength="300" placeholder="例如：为什么角色走了 2 步？"></textarea>
-        <button type="button" class="primary-button" id="tutor-submit">提问</button>
-      </div>
-      <div class="tutor-detail" id="tutor-detail"></div>
-    </section>
+    <div class="feedback-column">
+      <section class="panel control-panel" aria-label="运行控制">
+        <h2 class="panel-title">运行控制</h2>
+        <div class="control-row">
+          <button type="button" class="primary-button" id="run-button">运行</button>
+          <button type="button" class="danger-button" id="stop-button" disabled>停止</button>
+          <button type="button" class="ghost-button" id="reset-button">恢复本题初始积木</button>
+        </div>
+        <p class="hint-text" id="run-hint">先完成预测，就可以运行啦。</p>
+        <button type="button" class="ghost-button" id="run-locate" hidden>定位积木</button>
+        <div class="slot-tabs" id="result-tabs" hidden>
+          <button type="button" class="chip-button" id="result-tab-result" data-slot="result" aria-controls="result-panel" aria-pressed="true">查看结果</button>
+          <button type="button" class="chip-button" id="result-tab-tutor" data-slot="tutor" aria-controls="tutor-panel" aria-pressed="false">求助</button>
+        </div>
+        <div class="object-view" aria-label="角色状态">
+          <div class="object-title">舞台 · 累计步数</div>
+          <div class="stage-track" id="stage-track">
+            <div id="stage-ticks" aria-hidden="true"></div>
+            <div class="stage-target" id="stage-target" hidden aria-hidden="true"></div>
+            <div class="stage-actor" id="stage-actor">🐢</div>
+          </div>
+          <div class="object-meta" id="object-meta">角色还没有动过。</div>
+        </div>
+      </section>
+
+      <section class="panel result-panel" id="result-panel" data-panel="result" aria-label="结果区">
+        <div class="panel-head">
+          <h2 class="panel-title">结果区</h2>
+
+        </div>
+        <div id="result-content">
+          <p class="muted">运行一次，就能看到结果啦。</p>
+        </div>
+        <details id="result-details">
+          <summary>查看运行详情</summary>
+          <div id="result-detail-content"></div>
+          <div class="result-output" id="live-output" hidden></div>
+          <div class="prediction-compare" id="prediction-compare" hidden>
+            <div class="compare-title">预测和结果</div>
+            <div class="compare-grid">
+              <span>你的预测</span><strong id="compare-prediction">—</strong>
+              <span>实际观察</span><strong id="compare-actual">—</strong>
+              <span>是否一致</span><strong id="compare-match">—</strong>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel tutor-panel" id="tutor-panel" data-panel="tutor" aria-label="辅导区">
+        <div class="tutor-head">
+          <h2 class="panel-title">辅导区</h2>
+          <span class="mode-badge" id="tutor-mode-badge">演示回复</span>
+        </div>
+        <div class="tutor-message" id="tutor-message" tabindex="-1" aria-live="polite">
+          <p class="muted">需要帮忙时，点下面的按钮。小老师会先给轻轻的小提示。</p>
+        </div>
+        <div class="tutor-actions">
+          <button type="button" class="ghost-button" data-choice="hint">轻提示</button>
+          <button type="button" class="ghost-button" data-choice="self_try">我想自己试</button>
+          <button type="button" class="ghost-button" data-panel-trigger="tutorMore" aria-controls="tutor-more" aria-expanded="false">更多帮助</button>
+          <button type="button" class="ghost-button" data-panel-trigger="tutorEvidence" aria-controls="tutor-detail" aria-expanded="false">看依据</button>
+        </div>
+        <div class="tutor-actions" id="tutor-more" data-panel="tutorMore" hidden>
+          <button type="button" class="ghost-button" data-choice="more_hint">更多提示</button>
+          <button type="button" class="ghost-button" data-choice="example">换个例子</button>
+          <button type="button" class="ghost-button" data-choice="skip">先跳过</button>
+        </div>
+        <div class="tutor-ask" id="tutor-ask" data-panel="tutorInput" hidden>
+          <label for="tutor-input">问问小老师</label>
+          <textarea id="tutor-input" rows="2" maxlength="300" placeholder="例如：为什么角色走了 2 步？"></textarea>
+          <button type="button" class="primary-button" id="tutor-submit">提问</button>
+        </div>
+        <div class="tutor-ask-toggle">
+          <button type="button" class="ghost-button" id="tutor-ask-toggle" data-panel-trigger="tutorInput" aria-controls="tutor-ask" aria-expanded="false">我想自己提问</button>
+        </div>
+        <div class="tutor-detail" id="tutor-detail" data-panel="tutorEvidence" hidden></div>
+      </section>
+    </div>
   </main>
 
-  <section class="summary-panel" id="summary-panel" hidden aria-label="学习总结">
+  <dialog class="summary-panel" id="summary-panel" aria-labelledby="summary-title">
     <div class="summary-inner">
-      <h2>这节课的小总结</h2>
+      <h2 id="summary-title">这节课的小总结</h2>
       <div id="summary-content"></div>
       <div class="summary-actions">
         <button type="button" class="primary-button" id="summary-variant">再练一次变式</button>
         <button type="button" class="ghost-button" id="summary-skipped">看看跳过的任务</button>
+        <button type="button" class="ghost-button" id="summary-close" autofocus>回到课堂</button>
         <button type="button" class="ghost-button" id="summary-finish">结束演示</button>
       </div>
     </div>
-  </section>
+  </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <div class="sr-only" id="drag-live" aria-live="polite" aria-atomic="true"></div>

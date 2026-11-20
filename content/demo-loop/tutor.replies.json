@@ -17,8 +17,8 @@
       "learnerChoice": "more_hint",
       "level": 2,
       "action": "hint",
-      "message": "看看重复次数和目标步数是不是一样。现在重复次数还是 2。",
-      "nextStep": "把重复次数改成 4 试试",
+      "message": "先看看每次走几步，再想想重复多少次能走 4 步。",
+      "nextStep": "改一个数字，运行后数一数",
       "uncertainty": "也许你想的是另一种走法。"
     },
     {
@@ -27,8 +27,8 @@
       "learnerChoice": "more_hint",
       "level": 3,
       "action": "show_execution",
-      "message": "运行后角色每动一次会亮一次，数一数亮了三次还是四次。",
-      "nextStep": "运行一次，数一数角色走了几步",
+      "message": "运行后，结果会告诉你角色动了几次、共走了几步。",
+      "nextStep": "运行一次，把实际步数和目标比一比",
       "uncertainty": "运行结果会告诉我们答案。"
     },
     {
@@ -117,7 +117,7 @@
       "learnerChoice": "hint",
       "level": 1,
       "action": "hint",
-      "message": "我先不直接给完整答案。先想一想：角色要走几步，重复积木就重复几次。",
+      "message": "先找出每次走几步，再想想重复几次能走够目标步数。",
       "nextStep": "把重复次数改成目标步数试试",
       "uncertainty": "也许你已经知道答案，只是想确认。"
     },

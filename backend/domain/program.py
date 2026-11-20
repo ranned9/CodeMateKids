@@ -275,7 +275,10 @@ def _validate_node(
 
 
 def number_input_value(value: Any) -> Any:
-    return (value.get("inputs") or {}).get("value") if isinstance(value, dict) else value
+    if not isinstance(value, dict):
+        return value
+    nested = (value.get("inputs") or {}).get("value")
+    return int(nested) if type(nested) is float and nested.is_integer() else nested
 
 
 def _validate_field_value(
@@ -290,16 +293,13 @@ def _validate_field_value(
     enforce_runnable: bool,
 ) -> None:
     value_type = field.get("valueType")
+    if field.get("acceptsNumberBlock") and isinstance(value, dict):
+        if value.get("kind") != "value.number" or value.get("next") is not None:
+            raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置只接收数字积木。", block_id)
+        _validate_expression_node(value, registry, block_id, depth + 1, counter, seen_ids, max_depth, enforce_runnable)
+        block_id = value["blockId"]
+        value = number_input_value(value)
     if value_type in ("number", "integer"):
-        if field.get("acceptsNumberBlock") and isinstance(value, dict):
-            if value.get("kind") != "value.number" or value.get("next") is not None:
-                raise ProgramError("PROGRAM_SCHEMA_INVALID", "次数格只接收数字积木。", block_id)
-            _validate_expression_node(value, registry, block_id, depth + 1, counter, seen_ids, max_depth, enforce_runnable)
-            count = number_input_value(value)
-            if type(count) is float and count.is_integer():
-                count = int(count)
-            block_id = value["blockId"]
-            value = count
         if value_type == "integer" and type(value) is not int:
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要一个整数。", block_id)
         if isinstance(value, bool) or not isinstance(value, (int, float)):

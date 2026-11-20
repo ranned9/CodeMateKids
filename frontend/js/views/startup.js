@@ -16,7 +16,9 @@ export function renderStartup(data, elements, callbacks) {
   const retry = elements.retry;
   const enter = elements.enter;
 
-  banner.className = `startup-banner ${data.status === "ready" ? "" : data.status}`;
+  const entered = banner.classList?.contains("entered") ? " entered" : "";
+  const pending = callbacks.courseUpdatePending ? " update-pending" : "";
+  banner.className = `startup-banner ${data.status === "ready" ? "" : data.status}${entered}${pending}`;
   title.textContent = STATUS_TEXT[data.status] || "启动检查完成";
 
   checks.innerHTML = "";
@@ -56,6 +58,8 @@ export function renderStartup(data, elements, callbacks) {
     title.textContent = "需要先调整运行环境";
   } else if (callbacks.courseUpdatePending) {
     title.textContent = "课程等待载入";
+  } else if (data.runCapability?.canRun === false && data.runCapability.reasonForChild) {
+    title.textContent = data.runCapability.reasonForChild;
   }
   return data.status;
 }

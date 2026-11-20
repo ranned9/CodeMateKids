@@ -91,7 +91,11 @@ export function planWorkspaceDrop(root, request) {
     return { ok: false, root, message: "不能把积木接到自己里面。" };
   } else if (target.ref.field) {
     const owner = findBlock(target.stack.root, target.ref.ownerId);
-    attachToSlot(owner, target.ref.field, node);
+    try {
+      attachToSlot(owner, target.ref.field, node, { definitions, fromToolbox: !blockId });
+    } catch (error) {
+      return { ok: false, root, message: error.message };
+    }
   } else {
     const connected = insertAfterAnchor(target.stack.root, target.ref, node);
     if (!connected) {

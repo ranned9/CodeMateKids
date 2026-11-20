@@ -112,6 +112,38 @@ def test_number_block_in_repeat_uses_count_limits(value) -> None:
     assert exc.value.block_id == "b-num"
 
 
+@pytest.mark.parametrize(("kind", "field", "value"), [
+    ("motion.move", "steps", 0),
+    ("motion.move", "steps", 1.5),
+    ("motion.move", "steps", 101),
+    ("motion.turn", "degrees", 45),
+    ("motion.turn", "degrees", 90.5),
+])
+def test_number_block_respects_motion_parameter_limits(kind, field, value) -> None:
+    with pytest.raises(ProgramError) as exc:
+        validate_program(program(node("b-action", kind, {field: number(value=value)})))
+    assert exc.value.block_id == "b-num"
+
+
+def test_motion_number_blocks_roundtrip_and_execution(client) -> None:
+    turn = node("b-turn", "motion.turn", {"degrees": number("b-angle", 90)})
+    move = node("b-move", "motion.move", {"steps": number("b-steps", 3)}, nxt=turn)
+    loop = node("b-repeat", "control.repeat", {"times": number("b-times", 2)}, body=[move])
+    data = program(node("b-start", "event.start", {}, nxt=loop))
+    saved = client.post("/api/v1/projects/save", json={"program": data, "courseRef": data["courseRef"]})
+    assert saved.status_code == 200
+    loaded = client.post("/api/v1/projects/load", json={"fileText": saved.json()["data"]["fileText"]})
+    assert loaded.status_code == 200
+    reopened = loaded.json()["data"]["program"]
+    assert reopened["root"] == data["root"]
+    assert client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 2}).status_code == 200
+    assert submit(client, reopened, "run-motion-number-blocks").status_code == 200
+    _, result = drain(client, "run-motion-number-blocks")
+    assert result["status"] == "completed"
+    stage = next(item for item in result["objects"] if item["id"] == "stage")
+    assert (stage["x"], stage["y"], stage["moves"], stage["steps"], stage["heading"]) == (3, 3, 2, 6, 180)
+
+
 def test_repeat_number_block_roundtrip_and_execution(client) -> None:
     printer = node("b-print", "text.print", {"value": number("b-output", 7)})
     loop = node("b-loop", "control.repeat", {"times": number("b-count", 3)}, body=[printer])

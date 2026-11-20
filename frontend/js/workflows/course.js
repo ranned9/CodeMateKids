@@ -5,6 +5,7 @@ import { renderStartup } from "../views/startup.js";
 
 export function createCourseWorkflow({
   state, elements, confirmLeaveDirty, leaveRunContext, applyTask, renderAll, updateRunControls, toast,
+  onEnterClassroom = null,
 }) {
   function hasPendingCourse() {
     const version = state.startup?.contentVersion;
@@ -17,13 +18,18 @@ export function createCourseWorkflow({
     const target = current?.enterable ? current : course.tasks.find((task) => task.enterable);
     state.course = course;
     state.tasks = tasks;
+    if (state.contentVersion !== course.contentVersion) {
+      state.prediction?.clear();
+      state.predictionContext?.clear();
+      state.lessonObservation = "";
+    }
+    state.contentVersion = course.contentVersion || null;
     state.variantAvailable = Boolean(tasks.get("variant")?.enterable);
     if (target) {
       applyTask(target.taskId);
     } else {
       renderAll("content");
     }
-    state.contentVersion = course.contentVersion || null;
     return Boolean(target);
   }
 
@@ -32,7 +38,11 @@ export function createCourseWorkflow({
       courseUpdatePending: hasPendingCourse(),
       onRetry: refreshStartup,
       onEnter: () => {
-        elements.banner.hidden = true;
+        if (onEnterClassroom) {
+          onEnterClassroom();
+        } else {
+          elements.banner.hidden = true;
+        }
       },
     });
   }

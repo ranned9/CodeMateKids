@@ -6,6 +6,7 @@ export class History {
     this.undoStack = [];
     this.redoStack = [];
     this.maxDepth = 50;
+    this.sequence = 0;
   }
 
   snapshot() {
@@ -16,14 +17,22 @@ export class History {
     if (JSON.stringify(before) === JSON.stringify(after)) {
       return;
     }
-    this.undoStack.push({ type, before, after });
+    this.sequence += 1;
+    this.undoStack.push({ type, before, after, transactionId: `tx-${this.sequence}` });
     if (this.undoStack.length > this.maxDepth) {
       this.undoStack.shift();
     }
     this.redoStack = [];
   }
 
-  undo() {
+  latestTransactionId() {
+    return this.undoStack[this.undoStack.length - 1]?.transactionId || null;
+  }
+
+  undo(expectedTransactionId = null) {
+    if (expectedTransactionId && this.latestTransactionId() !== expectedTransactionId) {
+      return false;
+    }
     const entry = this.undoStack.pop();
     if (!entry) {
       return false;

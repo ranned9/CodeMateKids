@@ -111,7 +111,7 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8011
 - `GET /assets/css/app.css` 返回 200，包含 `touch-action: none`。
 - `GET /assets/js/main.js`、`GET /assets/js/editor/targets.js`、`GET /assets/js/workflows/projects.js` 和 `GET /assets/js/workflows/course.js` 返回 200。
 - 课堂网页与静态资源返回 `Cache-Control: no-store`，打开页面时浏览器会向当前服务获取文件。
-- `GET /api/v1/startup/check` 的 `data.status` 非 `fatal`，`data.contentVersion` 为 `1.2.0`。
+- `GET /api/v1/startup/check` 的 `data.status` 非 `fatal`，`data.contentVersion` 为 `1.2.1`。
 - `GET /api/v1/blocks/schema` 仍包含 `value.number`/`value.calc`。
 - `GET /api/v1/course/demo-loop` 的两个任务 `allowedBlockKinds` 均包含 `text.print`、`value.number` 和 `value.calc`。
 

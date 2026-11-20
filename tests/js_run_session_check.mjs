@@ -80,6 +80,7 @@ const toasts = [];
 let stream;
 let finished = true;
 let nextCancelResponse = null;
+let nextSubmitResponse = null;
 globalThis.EventSource = class {
   constructor() {
     stream = this;
@@ -94,6 +95,7 @@ globalThis.window = {
   __cmkApi: {
     async submitRun(payload) {
       requests.push(payload);
+      return nextSubmitResponse;
     },
     async cancelRun(requestId, cancelToken) {
       cancellations.push({ requestId, cancelToken });
@@ -172,5 +174,23 @@ rejectPendingStop(new Error("late cancel failure"));
 await pendingStop;
 assert.equal(runner.isBusy(), false);
 assert.equal(elements.run.disabled, false);
+
+state.predictionPending.set("main", {});
+await runner.run();
+assert.equal(requests.length, 3);
+assert.equal(elements.run.disabled, true);
+state.predictionPending.clear();
+
+let acceptRun;
+nextSubmitResponse = new Promise((resolve) => { acceptRun = resolve; });
+const cancelBeforeAccept = runner.run();
+assert.equal(elements.stop.disabled, false);
+await runner.stop();
+assert.equal(elements.stop.disabled, true);
+acceptRun();
+await cancelBeforeAccept;
+assert.equal(cancellations.at(-1).requestId, requests[3].requestId);
+await stream.onerror();
+assert.equal(runner.isBusy(), false);
 
 console.log("JS-RUN-SESSION-CHECK PASSED");

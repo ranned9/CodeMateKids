@@ -285,4 +285,36 @@ assert.equal(state.root.next.inputs.times.blockId, countId);
 assert.equal(editor.deleteBlock(countId), true);
 assert.equal(state.root.next.inputs.times, 4);
 
+const moveId = state.root.next.body[0].blockId;
+assert.equal(editor.numberControls.controls.has(moveId), true);
+editor.selectBlock(moveId);
+assert.equal(editor.insertFromToolbox("value.number"), true);
+const stepsId = state.selectedBlockId;
+editor.numberControls.controls.get(stepsId).increase.click();
+editor.commitFieldValue(stepsId, "value", "2.5");
+assert.equal(state.root.next.body[0].inputs.steps.inputs.value, 2);
+assert.match(element("code-preview-text").textContent, /stage\.move\(2\)/);
+
+editor.selectBlock(moveId);
+assert.equal(editor.insertFromToolbox("motion.turn"), true);
+const turnId = state.selectedBlockId;
+editor.numberControls.controls.get(turnId).increase.click();
+const angleTarget = editor.layout.targets.find((target) => target.id === `expr:${turnId}.degrees`);
+const anglePoint = { x: angleTarget.rect.x + 70, y: angleTarget.rect.y + angleTarget.rect.h / 2 };
+const anglePreview = editor.dnd.buildPreview(anglePoint, {
+  kind: "value.number",
+  definition: state.blocksByKind.get("value.number"),
+});
+assert.equal(anglePreview.valid, true);
+assert.equal(anglePreview.numberValue, 180);
+assert.equal(editor.commitDrop(null, "value.number", anglePreview), true);
+const angleId = state.selectedBlockId;
+assert.match(element("code-preview-text").textContent, /stage\.turn\(180\)/);
+editor.commitFieldValue(angleId, "value", "91");
+assert.match(element("code-preview-text").textContent, /stage\.turn\(180\)/);
+editor.numberControls.controls.get(angleId).increase.click();
+assert.match(element("code-preview-text").textContent, /stage\.turn\(270\)/);
+assert.equal(editor.deleteBlock(angleId), true);
+assert.match(element("code-preview-text").textContent, /stage\.turn\(90\)/);
+
 console.log("JS-PROJECT-COURSE-CHECK PASSED");

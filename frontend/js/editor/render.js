@@ -1,4 +1,50 @@
 /** Canvas 2D 渲染：外壳/积木/状态分层，插入线与容器高亮。 */
+import { computeLayout, numberControlRect } from "./layout.js";
+import { createBlock } from "./model.js";
+
+const PREVIEW_WIDTH = 144;
+const previewCache = new WeakMap();
+
+function blockPreview(definition, numberValue) {
+  if (numberValue === undefined && previewCache.has(definition)) {
+    return previewCache.get(definition);
+  }
+  const root = createBlock(definition, "preview");
+  if (definition.kind === "value.number" && numberValue !== undefined) {
+    root.inputs.value = numberValue;
+  }
+  const definitions = new Map([[definition.kind, definition]]);
+  const layout = computeLayout([{ x: 0, y: 0, root }], definitions, { blockWidth: PREVIEW_WIDTH });
+  const node = layout.nodes[0];
+  const preview = { node, layout, view: { definitions } };
+  if (numberValue === undefined) {
+    previewCache.set(definition, preview);
+  }
+  return preview;
+}
+
+function paintBlock(ctx, node, layout, view) {
+  const section = layout.sections[node.blockId];
+  drawContainerShell(ctx, node, section, view);
+  drawBlockLayer(ctx, node, section, view);
+}
+
+export function drawToolboxBlock(canvas, definition) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  const { node, layout, view } = blockPreview(definition);
+  const padding = 6;
+  const ratio = globalThis.devicePixelRatio || 1;
+  const width = node.rect.w + padding * 2;
+  const height = node.rect.h + padding * 2;
+  canvas.width = Math.ceil(width * ratio);
+  canvas.height = Math.ceil(height * ratio);
+  canvas.style.width = `${width}px`;
+  canvas.style.aspectRatio = `${width} / ${height}`;
+  ctx.setTransform(ratio, 0, 0, ratio, padding * ratio, padding * ratio);
+  paintBlock(ctx, node, layout, view);
+  return true;
+}
 
 const COLORS = {
   event: { fill: "#2f7f78", stroke: "#25635e", text: "#ffffff" },
@@ -180,7 +226,7 @@ function drawBlockLayer(ctx, node, section, view) {
 
   ctx.fillStyle = palette.text;
   ctx.font = "700 15px 'Microsoft YaHei UI', sans-serif";
-  ctx.fillText(truncate(def?.displayName || "未知积木", 10), section?.header.x ? section.header.x + 12 : node.rect.x + 12, node.rect.y + 22);
+  ctx.fillText(truncate(def?.displayName || "未知积木", 10), node.rect.x + 12, node.rect.y + 22, node.rect.w - 24);
   if (isUnknown) {
     ctx.fillStyle = "rgba(255,255,255,0.95)";
     ctx.font = "700 11px 'Microsoft YaHei UI', sans-serif";
@@ -201,7 +247,7 @@ function drawBlockLayer(ctx, node, section, view) {
     ctx.save();
     ctx.fillStyle = "rgba(47, 64, 94, 0.72)";
     ctx.font = "12px 'Microsoft YaHei UI', sans-serif";
-    ctx.fillText("把要重复的动作拖进来", section.bodyBox.x + 12, section.bodyBox.y + 24);
+    ctx.fillText("把要重复的动作拖进来", section.bodyBox.x + 10, section.bodyBox.y + 24, section.bodyBox.w - 42);
     ctx.strokeStyle = "rgba(47, 64, 94, 0.5)";
     ctx.lineWidth = 2;
     const arrowX = section.bodyBox.x + section.bodyBox.w - 22;
@@ -242,17 +288,40 @@ function drawField(ctx, node, field, view) {
   ctx.font = "11px 'Microsoft YaHei UI', sans-serif";
   const baseline = field.rect.y + (field.inlineNumber ? 19 : 12);
   ctx.fillText(String(field.label || field.name), field.rect.x + 6, baseline);
-  if (!field.inlineNumber || !view.numberControls?.has(node.blockId)) {
+  if (field.inlineNumber) {
+    if (!view.numberControls?.has(node.blockId)) {
+      drawNumberControl(ctx, field.rect, fieldValueText(node, field));
+    }
+  } else {
     ctx.fillStyle = "#ffffff";
     ctx.font = "700 13px 'Microsoft YaHei UI', sans-serif";
-    ctx.fillText(truncate(fieldValueText(node, field), 14), field.rect.x + 46, baseline + 1);
+    ctx.fillText(truncate(fieldValueText(node, field), 14), field.rect.x + 46, baseline + 1, field.rect.w - 52);
   }
-  if (view.editable && (field.valueType === "choice" || (field.acceptsNumberBlock && field.rect.w >= 212))) {
+  if (view.editable && field.rect.w >= 212 && (field.valueType === "choice" || field.acceptsNumberBlock)) {
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.font = "10px 'Microsoft YaHei UI', sans-serif";
     const hint = field.acceptsNumberBlock ? "可拖入数字" : "点击更换";
     ctx.fillText(hint, field.rect.x + field.rect.w - ctx.measureText(hint).width - 5, baseline);
   }
+}
+
+function drawNumberControl(ctx, fieldRect, value) {
+  const { x, y, w, h } = numberControlRect(fieldRect);
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 6);
+  ctx.clip();
+  ctx.fillStyle = "#eaf0fa";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x + w / 4, y, w / 2, h);
+  ctx.fillStyle = "#253653";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "700 14px 'Microsoft YaHei UI', sans-serif";
+  ctx.fillText("−", x + w / 8, y + h / 2);
+  ctx.fillText(value, x + w / 2, y + h / 2, w / 2 - 4);
+  ctx.fillText("+", x + w * 7 / 8, y + h / 2);
+  ctx.restore();
 }
 
 function drawStateMarks(ctx, node, section, view) {
@@ -341,6 +410,19 @@ function drawPreview(ctx, preview, layout, view) {
   const accent = valid ? "#2f9e63" : "#d9534f";
   const visual = target?.visual;
 
+  if (preview.kind && !(preview.freePosition && preview.blockId)) {
+    const definition = view.definitions.get(preview.kind);
+    const existing = layout.nodes?.find((node) => node.blockId === preview.blockId);
+    if (definition) {
+      const artwork = existing ? { node: existing, layout, view } : blockPreview(definition, preview.numberValue);
+      ctx.save();
+      ctx.translate(preview.x - artwork.node.rect.x, preview.y - artwork.node.rect.y);
+      ctx.globalAlpha = 0.87;
+      paintBlock(ctx, artwork.node, artwork.layout, artwork.view);
+      ctx.restore();
+    }
+  }
+
   if (visual?.containerId) {
     const section = layout.sections?.[visual.containerId];
     if (section?.outline) {
@@ -371,27 +453,6 @@ function drawPreview(ctx, preview, layout, view) {
     if (!valid) {
       drawInvalidBadge(ctx, visual.x + visual.w - 6, visual.y - 10);
     }
-  }
-
-  if (preview.kind && !(preview.freePosition && preview.blockId)) {
-    const definition = view.definitions.get(preview.kind);
-    const palette = paletteFor(definition);
-    ctx.save();
-    ctx.translate(preview.x + 95, preview.y + 21);
-    if (!preview.freePosition) {
-      ctx.rotate((-4 * Math.PI) / 180);
-    }
-    ctx.globalAlpha = 0.78;
-    roundRect(ctx, -95, -21, 190, 42, 9);
-    ctx.fillStyle = palette.fill;
-    ctx.fill();
-    ctx.strokeStyle = palette.stroke;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 13px 'Microsoft YaHei UI', sans-serif";
-    ctx.fillText(truncate(definition?.displayName || "积木", 10), -85, 5);
-    ctx.restore();
   }
 
   if (preview.message) {

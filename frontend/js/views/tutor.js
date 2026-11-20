@@ -1,5 +1,5 @@
 /** 辅导区：异步归属、纯文本渲染与跳过去重。 */
-import { accept, markSkipSubmitted, nextSeq } from "../core/asyncGuard.js";
+import { markSkipSubmitted } from "../core/asyncGuard.js";
 import { captureContext, isCurrentContext } from "../core/viewContext.js";
 import { appendDiv, appendErrorBox, appendParagraph, clearNode } from "../util/dom.js";
 
@@ -24,20 +24,42 @@ const EVIDENCE_LABEL = {
   self_feedback: "你的自评",
 };
 
-export function createTutor({ elements, state, editor, toast, onChange }) {
+export function createTutor({ elements, state, editor, toast, onChange, onLocate }) {
+  let latestRequest = 0;
+  let displayedReply = null;
+
+  function updateContext() {
+    if (!displayedReply?.notice.isConnected) {
+      return;
+    }
+    const { revision, runId, notice, locate } = displayedReply;
+    const stale = revision !== state.programRevision || runId !== state.lastRunContext?.requestId;
+    notice.hidden = !stale;
+    if (locate) {
+      locate.hidden = stale;
+    }
+  }
+
   async function ask(choice, message = "") {
     const ctx = captureContext(state, state.activeTaskId);
-    const seq = nextSeq();
     const task = state.tasks.get(ctx.taskId);
     if (!task) {
       return;
     }
+    const seq = ++latestRequest;
+    const current = () => seq === latestRequest && isCurrentContext(state, ctx);
+    const revision = state.programRevision;
+    const runId = state.lastRunContext?.requestId;
+    const blockId = state.lastResultOwnership === "current"
+      ? state.errorBlockId || state.lastResult?.loopBlockId
+      : null;
     const programSummary = editor.summary();
     const programValid = editor.state.invalidBlockIds.size === 0;
     const lastRunStatus = state.lastRunStatus;
     const shouldSkip = choice === "skip" && markSkipSubmitted(ctx.taskId);
 
     clearNode(elements.message);
+    displayedReply = null;
     appendParagraph(elements.message, "小老师正在想一想…", "muted");
     try {
       const data = await window.__cmkApi.hint({
@@ -51,16 +73,32 @@ export function createTutor({ elements, state, editor, toast, onChange }) {
       if (shouldSkip) {
         await window.__cmkApi.feedback(ctx.taskId, "skip");
       }
-      if (!accept(seq) || !isCurrentContext(state, ctx)) {
+      if (!current()) {
         return;
       }
       renderReply(elements, data, state);
+      const notice = appendDiv(elements.message, "这条提示参考了之前的积木或运行结果。", "muted");
+      let locate = null;
+      if (blockId && onLocate) {
+        locate = document.createElement("button");
+        locate.type = "button";
+        locate.className = "ghost-button";
+        locate.textContent = "看看这块积木";
+        locate.addEventListener("click", () => {
+          if (current() && !locate.hidden) {
+            onLocate(blockId);
+          }
+        });
+        elements.message.appendChild(locate);
+      }
+      displayedReply = { revision, runId, notice, locate };
+      updateContext();
       if (shouldSkip) {
         toast("任务先留在这里，想回来时随时回来。");
       }
       onChange?.("hint");
     } catch (error) {
-      if (!isCurrentContext(state, ctx)) {
+      if (!current()) {
         return;
       }
       clearNode(elements.message);
@@ -87,7 +125,7 @@ export function createTutor({ elements, state, editor, toast, onChange }) {
     elements.input.value = "";
   });
 
-  return { ask };
+  return { ask, updateContext };
 }
 
 function renderReply(elements, data, state) {

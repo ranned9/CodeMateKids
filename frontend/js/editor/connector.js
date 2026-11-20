@@ -30,22 +30,31 @@ export function canConnect(schema, definition, targetPortType) {
 }
 
 export function canConnectToTarget(schema, definition, target, numberValue) {
-  if (target.numberRange) {
+  if (target.numberField) {
     if (definition?.kind !== "value.number") {
-      return { ok: false, reason: "NEEDS_VALUE", message: "次数格只接收数字积木。" };
+      return { ok: false, reason: "NEEDS_VALUE", message: "这个位置只接收数字积木。" };
     }
-    const { min, max } = target.numberRange;
-    if (numberValue !== undefined && (!Number.isInteger(numberValue) || numberValue < min || numberValue > max)) {
-      return {
-        ok: false,
-        reason: "INVALID_NUMBER",
-        message: `重复次数需要填 ${min} 到 ${max} 之间的整数。`,
-      };
+    const message = numberValue === undefined ? "" : numericFieldError(target.numberField, numberValue);
+    if (message) {
+      return { ok: false, reason: "INVALID_NUMBER", message };
     }
   }
   return canConnect(schema, definition, target.portType || portTypeOfTarget(target.id));
 }
 
+export function numericFieldError(field, value) {
+  if (!Number.isFinite(value)) return "这个位置需要一个数字。";
+  if (field.valueType === "integer" && !Number.isInteger(value)) return "这个位置需要一个整数。";
+  if (field.choices && !field.choices.includes(value)) return `可以选择 ${field.choices.join("、")}。`;
+  if (field.range?.min != null && value < field.range.min) return `数字不能小于 ${field.range.min}。`;
+  if (field.range?.max != null && value > field.range.max) return `数字不能大于 ${field.range.max}。`;
+  return "";
+}
+
+export function numberForNewBlock(field, defaultNumber, currentNumber) {
+  if (!numericFieldError(field, defaultNumber)) return defaultNumber;
+  return numericFieldError(field, currentNumber) ? field.defaultValue : currentNumber;
+}
 export function slotAccepts(slot) {
   if (slot.type === "slot") {
     return "expression";

@@ -5,7 +5,7 @@ import { STACK_START, cloneTree, findBlock, numberInputValue, programSummary, re
 import { planWorkspaceDrop } from "../editor/workspace.js";
 import { DndController } from "../editor/dnd.js";
 import { emptyLayoutModel } from "../editor/targets.js";
-import { canConnectToTarget } from "../editor/connector.js";
+import { canConnectToTarget, numericFieldError } from "../editor/connector.js";
 import { attachKeyboard } from "../editor/keyboard.js";
 import { NumberControls } from "../editor/number-controls.js";
 import { syncMirror } from "../util/a11y.js";
@@ -51,9 +51,9 @@ function previewCode(root, definitions) {
           lines.push(`${pad}    pass`);
         }
       } else if (current.kind === "motion.move") {
-        lines.push(`${pad}stage.move(${current.inputs?.steps ?? 0})`);
+        lines.push(`${pad}stage.move(${numberInputValue(current.inputs?.steps) ?? 0})`);
       } else if (current.kind === "motion.turn") {
-        lines.push(`${pad}stage.turn(${current.inputs?.degrees ?? 90})`);
+        lines.push(`${pad}stage.turn(${numberInputValue(current.inputs?.degrees) ?? 90})`);
       } else if (current.kind === "look.say") {
         lines.push(`${pad}stage.say(${JSON.stringify(current.inputs?.text ?? "")})`);
       } else if (current.kind === "text.print") {
@@ -198,6 +198,29 @@ export class EditorView {
     });
   }
 
+  revealBlock(blockId) {
+    const node = (this.layout.nodes || []).find((item) => item.blockId === blockId);
+    if (!node) {
+      return false;
+    }
+    const rect = node.rect;
+    const maxX = Math.max(0, this.layout.contentWidth - this.width + 24);
+    const maxY = Math.max(0, this.layout.height - this.height + 24);
+    if (rect.y < this.scrollY) {
+      this.scrollY = Math.max(0, rect.y - 16);
+    } else if (rect.y + rect.h > this.scrollY + this.height) {
+      this.scrollY = Math.min(maxY, rect.y + rect.h - this.height + 16);
+    }
+    if (rect.x < (this.scrollX ?? 0)) {
+      this.scrollX = Math.max(0, rect.x - 16);
+    } else if (rect.x + rect.w > (this.scrollX ?? 0) + this.width) {
+      this.scrollX = Math.min(maxX, rect.x + rect.w - this.width + 16);
+    }
+    this.state.selectedBlockId = blockId;
+    this.refresh();
+    return true;
+  }
+
   pointFromEvent(event) {
     const rect = this.canvas.getBoundingClientRect();
     const scaleX = this.width / rect.width;
@@ -304,7 +327,7 @@ export class EditorView {
         }
         const owner = findBlock(this.state.root, target.ownerId);
         const value = owner?.inputs?.[target.field];
-        if (target.ownerId === selected && (value == null || (target.numberRange && typeof value === "number"))) {
+        if (target.ownerId === selected && (value == null || (target.numberField && typeof value === "number"))) {
           return target;
         }
         if (value == null) {
@@ -449,6 +472,7 @@ export class EditorView {
     this.history.record("delete", before, cloneTree(result.root));
     this.refresh();
     this.onChange("program");
+    this.handlers.onDeleted?.(this.history.latestTransactionId());
     return true;
   }
 
@@ -558,7 +582,13 @@ export class EditorView {
       const fields = this.state.blocksByKind.get(node.kind)?.fields || [];
       slot ??= fields.find((item) => item.acceptsNumberBlock && node.inputs?.[item.name]?.blockId === blockId);
     });
-    return slot ? { ...field, valueType: "integer", range: slot.range } : field;
+    return slot ? {
+      ...field,
+      valueType: slot.valueType,
+      range: slot.range,
+      choices: slot.choices,
+      acceptsNumberBlock: true,
+    } : field;
   }
 
   commitFieldValue(blockId, fieldName, rawValue) {
@@ -574,22 +604,11 @@ export class EditorView {
       return;
     }
     let value = rawValue;
-    if (field.valueType === "number" || field.valueType === "integer") {
-      value = Number(rawValue);
-      if (field.valueType === "integer" && (!String(rawValue).trim() || !Number.isInteger(value))) {
-        this.toast("这个位置需要一个整数。");
-        return;
-      }
-      if (!Number.isFinite(value)) {
-        this.toast("这个位置需要一个数字。");
-        return;
-      }
-      if (field.range?.min != null && value < field.range.min) {
-        this.toast(`数字不能小于 ${field.range.min}。`);
-        return;
-      }
-      if (field.range?.max != null && value > field.range.max) {
-        this.toast(`数字不能大于 ${field.range.max}。`);
+    if (field.acceptsNumberBlock || field.valueType === "number" || field.valueType === "integer") {
+      value = String(rawValue).trim() ? Number(rawValue) : NaN;
+      const message = numericFieldError(field, value);
+      if (message) {
+        this.toast(message);
         return;
       }
     } else if (field.valueType === "choice") {

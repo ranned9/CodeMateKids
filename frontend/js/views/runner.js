@@ -1,5 +1,5 @@
 /** 运行控制：门禁、重入保护、SSE 归属、停止与离开运行上下文。 */
-import { buildProgram, programWorkspace, validateTree } from "../editor/model.js";
+import { buildProgram, cloneTree, findBlock, programWorkspace, validateTree } from "../editor/model.js";
 import { evaluateRunGate } from "../core/runGate.js";
 import {
   createRunSession,
@@ -11,8 +11,11 @@ import {
   tryBegin,
 } from "../core/runSession.js";
 import { captureContext, isContextActive, nextPageVersion } from "../core/viewContext.js";
+import { classifyResult, createRunViewContext, programFingerprint } from "../ux/runContext.js";
 import { renderResult, resetObjectView, updateObjectView } from "./result.js";
 import { setPhase } from "../state.js";
+import { LOOP_OBSERVATION, repeatedMoveInLoop } from "../ux/loopEvidence.js";
+import { predictionSourceFor } from "../ux/prediction.js";
 
 const POLL_INTERVAL_MS = 200;
 const POLL_ATTEMPTS = 25;
@@ -21,20 +24,25 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-export function createRunner({ elements, state, editor, toast, refresh, resetToTask }) {
+export function createRunner({ elements, state, editor, toast, refresh, resetToTask, getResultActions = () => ({}) }) {
   let streamText = "";
   let source = null;
   let lastStdoutSeq = 0;
   let recoveringRequestId = null;
+  let currentRun = null;
   const session = createRunSession();
 
-  function gateReason() {
+  function gateResult() {
     return evaluateRunGate({
       state,
       taskId: state.activeTaskId,
       root: state.root,
       validate: () => validateTree(state.root),
-    }).reason;
+    });
+  }
+
+  function gateReason() {
+    return gateResult().reason;
   }
 
   function phaseLabel() {
@@ -52,11 +60,13 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     const busy = isBusy(session);
     const reason = state.runRecovery || gateReason();
     elements.run.disabled = busy || Boolean(reason);
-    const canStop = session.phase === "running" || session.phase === "cancelling" || session.phase === "abandoned";
+    const canStop = isBusy(session) && !(
+      session.phase === "validating" && session.cancelOnAccept
+    );
     elements.stop.disabled = !canStop || (recoveringRequestId !== null && recoveringRequestId === session.requestId);
     elements.hint.textContent = state.runRecovery || reason || "准备好了，点运行试试。";
     elements.hint.className = reason ? "hint-text bad" : "hint-text ok";
-    elements.stateChip.textContent = busy ? phaseLabel() : phaseLabel();
+    elements.stateChip.textContent = phaseLabel();
     elements.stateChip.className = `status-chip${
       busy ? " warn" : state.phase === "result" ? " ok" : state.phase === "error" ? " bad" : ""
     }`;
@@ -80,8 +90,21 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     const cancelToken = crypto.randomUUID().replaceAll("-", "");
     const acceptedInfo = { requestId, cancelToken, taskId: ctx.taskId, pageVersion: ctx.pageVersion };
     const streamContext = { ...ctx, requestId };
+    const root = cloneTree(state.root);
+    const program = buildProgram(root, task);
+    const runContext = createRunViewContext({
+      requestId,
+      taskId: ctx.taskId,
+      pageVersion: ctx.pageVersion,
+      programRevision: state.programRevision,
+      predictionValue: state.prediction.get(ctx.taskId) ?? null,
+      predictionSource: predictionSourceFor(state, ctx.taskId),
+      fingerprint: programFingerprint(root),
+    });
+    currentRun = { context: runContext, task };
 
     state.lastRunStatus = null;
+    state.runIssue = "";
     state.errorBlockId = null;
     state.runRecovery = null;
     editor.state.errorBlockId = null;
@@ -97,21 +120,19 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         requestId,
         cancelToken,
         target: { language: "python", version: "3.12" },
-        program: buildProgram(state.root, task),
-        courseRef: { courseId: "demo-loop", version: 1, taskId: task.taskId },
+        program,
+        courseRef: program.courseRef,
         taskId: task.taskId,
         mode: "demo",
       });
     } catch (error) {
-      if (session.disposed) {
+      if (session.disposed || !isContextActive(state, ctx)) {
         release(session);
         state.runRecovery = null;
         updateControls();
         return;
       }
-      release(session);
-      setPhase("error");
-      state.lastResult = {
+      const rejection = {
         status: "failed",
         success: false,
         error: {
@@ -125,14 +146,15 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         objects: [],
         truncated: false,
       };
+      release(session);
+      state.runIssue = error.messageForChild || "运行没有开始，可以再试一次。";
       state.errorBlockId = error.blockId ?? null;
-      if (error.code === "RUN_IN_PROGRESS") {
-        state.runRecovery = "上一次还没停下来，可以稍后再试。";
-      }
       editor.state.errorBlockId = state.errorBlockId;
-      editor.render();
-      renderResult(elements.result, state, task, state.lastResult, { onRetry: run });
-      toast(error.messageForChild || "运行没有开始。");
+      setPhase("error");
+      if (!state.lastResult) {
+        showResult(task, rejection, runContext);
+      }
+      toast(state.runIssue);
       updateControls();
       refresh();
       return;
@@ -156,13 +178,29 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       return;
     }
 
-    state.lastResult = null;
+    if (elements.liveOutput) {
+      elements.liveOutput.hidden = true;
+      elements.liveOutput.textContent = "";
+    }
     setPhase("running");
     updateControls();
-    openStream(streamContext, task, requestId, cancelToken);
+    openStream(streamContext, task, requestId, cancelToken, runContext, root);
+    if (session.cancelOnAccept) {
+      await stop();
+    }
   }
 
-  function openStream(ctx, task, requestId, cancelToken) {
+  function showResult(task, data, runContext) {
+    state.lastResult = data;
+    state.lastRunContext = runContext;
+    state.lastResultOwnership = classifyResult({ state, record: runContext });
+    if (elements.objectView) {
+      updateObjectView(elements.objectView, data.objects || [], task);
+    }
+    renderResult(elements.result, state, task, data, getResultActions());
+  }
+
+  function openStream(ctx, task, requestId, cancelToken, runContext, root) {
     closeStream();
     const eventSource = new EventSource(`/api/v1/runs/${requestId}/events`);
     source = eventSource;
@@ -189,8 +227,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       if (!data || !data.blockId) {
         return;
       }
-      const exists = JSON.stringify(editor.state.root || "").includes(data.blockId);
-      if (!exists) {
+      if (!findBlock(editor.state.root, data.blockId)) {
         return;
       }
       state.runningBlockId = data.kind === "block_exit" ? null : data.blockId;
@@ -217,37 +254,38 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         return;
       }
       const data = parse(message.data);
-      if (!data) {
+      if (!data || data.requestId !== requestId) {
         return;
       }
       closeStream();
+      release(session);
       state.runningBlockId = null;
       editor.state.runningBlockId = null;
-      state.lastResult = data;
       state.lastRunStatus = data.status;
       state.errorBlockId = data.error?.blockId || null;
       state.runRecovery = null;
+      const loopBlockId = repeatedMoveInLoop(root, data);
+      const stage = data.objects?.find((item) => item.id === "stage");
+      if (loopBlockId) {
+        state.lessonObservation = `${task.title} · ${LOOP_OBSERVATION}`;
+      } else if (data.status === "completed" && Number.isFinite(stage?.steps)) {
+        state.lessonObservation = `${task.title} · 这次角色累计走了 ${stage.steps} 步。`;
+      }
+      showResult(task, { ...data, loopBlockId }, runContext);
       editor.state.errorBlockId = state.errorBlockId;
       setPhase(data.status !== "completed" ? "error" : "result");
-      editor.render();
-      updateObjectView(elements.objectView, data.objects || []);
-      renderResult(elements.result, state, task, data, { onRetry: run });
       if (data.success) {
         if (task.type === "main") {
           state.mainCompletedHint = true;
         }
-        toast(task.type === "variant" ? "变式也完成啦，去看看小总结吧。" : "这次做到了！");
+        toast(task.type === "variant" ? "变式也完成啦，可以去看看小总结。" : "这次做到了！");
       } else if (data.status === "completed") {
         toast("运行完成，和目标比一比。");
       } else {
         toast("程序没有跑完，看看结果区的建议。");
       }
-      release(session);
       updateControls();
       refresh();
-      if (data.success && task.type === "variant") {
-        refresh("variant-completed");
-      }
     });
 
     eventSource.onerror = async () => {
@@ -280,8 +318,13 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         state.runningBlockId = null;
         editor.state.runningBlockId = null;
         release(session);
+        if (currentRun?.context.requestId === requestId) {
+          showResult(currentRun.task, {
+            status: snapshot.status,
+            error: { messageForChild: "连接中断了，这轮没有收到完整结果。" },
+          }, currentRun.context);
+        }
         setPhase("error");
-        editor.render();
         toast("运行连接中断了，可以再试一次。");
       } else {
         state.runRecovery = "上一次还没停下来，可以再点停止。";

@@ -1,23 +1,49 @@
-/** 学习总结：只呈现已观察事实，不出现分数、排名或等级。 */
+/** 学习总结：三段（完成/观察/挑战）+ 本次会话明细，不出现分数、排名或等级。 */
+import { buildSummarySections } from "../ux/summarySections.js";
 import { appendParagraph, clearNode } from "../util/dom.js";
+
+let requestSequence = 0;
 
 export async function showSummary({ panel, content, state, callbacks }) {
   if (!panel || !content) {
     return;
   }
-  panel.hidden = false;
+  if (!panel.open) {
+    panel.showModal();
+  }
+  const request = ++requestSequence;
   clearNode(content);
   appendParagraph(content, "正在整理这次的学习记录…", "muted");
   let data;
   try {
     data = await window.__cmkApi.summary();
   } catch (error) {
+    if (!panel.open || request !== requestSequence) {
+      return;
+    }
     clearNode(content);
     appendParagraph(content, "这次还没有整理出小结，可以先继续练习。", "muted");
     return;
   }
 
+  if (!panel.open || request !== requestSequence) {
+    return;
+  }
   clearNode(content);
+  const sections = buildSummarySections(data, { observation: state.lessonObservation });
+  for (const section of sections) {
+    const card = document.createElement("div");
+    card.className = "summary-section";
+    card.setAttribute("data-summary-section", section.key);
+    const title = document.createElement("h3");
+    title.textContent = section.title;
+    const text = document.createElement("p");
+    text.textContent = section.text;
+    card.appendChild(title);
+    card.appendChild(text);
+    content.appendChild(card);
+  }
+
   const grid = document.createElement("dl");
   grid.className = "summary-grid";
   appendRow(grid, "这节课在练", (data.concepts || []).join("；") || "循环");
@@ -31,7 +57,11 @@ export async function showSummary({ panel, content, state, callbacks }) {
   if (data.missing?.length) {
     appendRow(grid, "这次没观察到的", data.missing.join("；"));
   }
-  content.appendChild(grid);
+  const details = document.createElement("details");
+  const disclosure = document.createElement("summary");
+  disclosure.textContent = "看看本次练习记录";
+  details.append(disclosure, grid);
+  content.appendChild(details);
 
   const note = document.createElement("p");
   note.className = "summary-note";

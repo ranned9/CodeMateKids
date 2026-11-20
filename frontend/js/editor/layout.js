@@ -19,6 +19,11 @@ export const LAYOUT = {
 
 const DEFAULT_VIEWPORT = { w: 720, h: 460, scrollX: 0, scrollY: 0 };
 
+export function numberControlRect({ x, y, w, h }) {
+  const labelWidth = Math.min(43, Math.floor(w * 0.38));
+  return { x: x + labelWidth, y: y + 2, w: Math.min(106, w - labelWidth - 4), h: h - 4 };
+}
+
 /**
  * @param {any} root
  * @param {Map<string, any>} definitions
@@ -26,6 +31,7 @@ const DEFAULT_VIEWPORT = { w: 720, h: 460, scrollX: 0, scrollY: 0 };
  */
 export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
   const view = { ...DEFAULT_VIEWPORT, ...(viewport || {}) };
+  const blockWidth = view.blockWidth ?? LAYOUT.WIDTH;
   const collector = {
     nodes: [],
     sections: {},
@@ -49,13 +55,13 @@ export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
       collector.group = group;
       collector.order = 0;
       for (const node of bodyStatements([stack.root])) {
-        y = layoutBlock(node, stack.x, y, LAYOUT.WIDTH, 0, workspaceOwnerId(root, stack), definitions, collector);
+        y = layoutBlock(node, stack.x, y, blockWidth, 0, workspaceOwnerId(root, stack), definitions, collector);
       }
       height = Math.max(height, y + 40);
     }
   }
 
-  let contentWidth = LAYOUT.WIDTH;
+  let contentWidth = blockWidth;
   for (const node of collector.nodes) {
     contentWidth = Math.max(contentWidth, node.rect.x + node.rect.w);
     node.visible =

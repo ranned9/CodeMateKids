@@ -2,6 +2,7 @@
 import { API } from "../api.js";
 import { captureContext, isCurrentContext } from "../core/viewContext.js";
 import { buildProgram, cloneTree, programWorkspace } from "../editor/model.js";
+import { notify } from "../state.js";
 
 function downloadProject(payload) {
   const blob = new Blob([payload.fileText], { type: "application/json;charset=utf-8" });
@@ -26,6 +27,9 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
     const { dialog, title, text } = elements;
     if (!dialog || typeof dialog.showModal !== "function") {
       return window.confirm("有还没保存的修改，继续会丢掉它们。继续吗？") ? "discard" : "cancel";
+    }
+    if (dialog.open) {
+      return "cancel";
     }
     if (title) {
       title.textContent = "还没保存的修改";
@@ -65,6 +69,9 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
     const ctx = captureContext(state);
     const revision = state.programRevision;
     const snapshot = cloneTree(state.root);
+    state.saveStateSaving = true;
+    state.saveError = null;
+    notify("save");
     try {
       const program = buildProgram(snapshot, task);
       const payload = await API.saveProject(program, program.courseRef);
@@ -75,12 +82,23 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
       if (requestId >= latestAppliedSave) {
         latestAppliedSave = requestId;
         state.savedSnapshot = snapshot;
+        state.lastSavedRevision = revision;
         state.dirty = revision !== state.programRevision;
         toast(state.dirty ? "之前的版本已保存，新的改动还没保存。" : "作品已保存到本机。");
       }
+      if (requestId === saveRequestSequence) {
+        state.saveStateSaving = false;
+        state.saveError = null;
+      }
+      notify("save");
       return !state.dirty;
     } catch (error) {
-      toast(error.messageForChild || "没有保存成功，可以再试一次。", true);
+      if (requestId === saveRequestSequence && isCurrentContext(state, ctx)) {
+        state.saveStateSaving = false;
+        state.saveError = error.messageForChild || "没有保存成功，可以再试一次。";
+        notify("save");
+        toast(state.saveError, true);
+      }
       return false;
     }
   }
@@ -89,16 +107,26 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
     if (!file || !editorReady()) {
       return;
     }
+    const ctx = captureContext(state);
     try {
       const text = await file.text();
       const data = await API.loadProject(text);
       const taskId = data.program?.courseRef?.taskId || "";
       const task = state.tasks.get(taskId);
       const validTask = Boolean(task && task.enterable && data.runnable);
-      if (!(await confirmLeaveDirty())) {
+      if (!isCurrentContext(state, ctx) || !(await confirmLeaveDirty()) || !isCurrentContext(state, ctx)) {
         return;
       }
-      await leaveRunContext("open-project");
+      const revision = state.programRevision;
+      const leaving = leaveRunContext("open-project");
+      const nextContext = captureContext(state);
+      if ((await leaving)?.stopped === false) {
+        toast("上一次运行还没有停下来，可以稍后再打开作品。", true);
+        return;
+      }
+      if (!isCurrentContext(state, nextContext) || revision !== state.programRevision) {
+        return;
+      }
       applyProject({
         source: "project",
         taskId: validTask ? taskId : "",
