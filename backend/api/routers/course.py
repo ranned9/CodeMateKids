@@ -15,7 +15,9 @@ router = APIRouter(tags=["course"])
 def get_course(course_id: str, request: Request) -> dict:
     settings = request.app.state.settings
     bundle = load_course(settings)
-    return ok(course_payload(settings, course_id, bundle))
+    payload = course_payload(settings, course_id, bundle)
+    payload["agentMode"] = request.app.state.model_config.snapshot().effectiveMode
+    return ok(payload)
 
 
 @router.get("/blocks/schema")

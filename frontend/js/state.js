@@ -3,7 +3,6 @@
 export const state = {
   schema: null,
   blocksByKind: new Map(),
-  portRules: {},
   rejectedKinds: [],
   startup: null,
   course: null,
@@ -21,6 +20,12 @@ export const state = {
   lastRunStatus: null,
   lastRunContext: null,
   lastResultOwnership: null,
+  workspaceId: null,
+  studentId: null,
+  predictionIds: new Map(),
+  seenHintIds: [],
+  learningRunRequestId: null,
+  skippedTaskIds: new Set(),
   runIssue: "",
   lessonObservation: "",
   prediction: new Map(),
@@ -31,9 +36,6 @@ export const state = {
   lastSavedRevision: 0,
   readonly: false,
   mode: "mock",
-  runRequestId: null,
-  cancelToken: null,
-  eventSource: null,
   highestHint: 0,
   savedSnapshot: null,
   pageVersion: 0,
@@ -60,23 +62,7 @@ export function notify(reason) {
   }
 }
 
-export function getDefinition(kind) {
-  return state.blocksByKind.get(kind) || null;
-}
-
-export function getActiveTask() {
-  return state.tasks.get(state.activeTaskId) || null;
-}
-
 export function setPhase(phase) {
   state.phase = phase;
   notify("phase");
-}
-
-export function currentPrediction(taskId = state.activeTaskId) {
-  return state.prediction.get(taskId) ?? null;
-}
-
-export function markDirty() {
-  state.dirty = true;
 }

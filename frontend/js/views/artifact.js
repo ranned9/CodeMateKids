@@ -1,8 +1,11 @@
 /** 载入作品/切换任务的唯一状态转换。 */
 import { cloneTree } from "../editor/model.js";
+import { createWorkspaceId } from "../ux/learningContext.js";
 import { appendParagraph, clearNode } from "../util/dom.js";
+import { resetObjectView } from "./result.js";
 
 export function resetDerivedState(state, dom = {}) {
+  if (dom["tutor-mode-badge"]) dom["tutor-mode-badge"].hidden = true;
   state.lastResult = null;
   state.lastRunStatus = null;
   state.lastRunContext = null;
@@ -26,13 +29,11 @@ export function resetDerivedState(state, dom = {}) {
     dom["live-output"].hidden = true;
     dom["live-output"].textContent = "";
   }
-  if (dom["object-meta"]) {
-    dom["object-meta"].textContent = "角色还没有动过。";
-  }
-  if (dom["stage-actor"]) {
-    dom["stage-actor"].style.left = "8px";
-    dom["stage-actor"].style.transform = "none";
-  }
+  resetObjectView({
+    meta: dom["object-meta"],
+    actor: dom["stage-actor"],
+    track: dom["stage-track"],
+  });
   if (dom["result-content"]) {
     clearNode(dom["result-content"]);
     appendParagraph(dom["result-content"], "运行一次，就能看到结果啦。", "muted");
@@ -62,6 +63,10 @@ export function applyArtifact({
   const taskRunnable = Boolean(task && task.enterable);
 
   resetDerivedState(state, dom);
+  state.workspaceId = createWorkspaceId(source);
+  state.predictionIds = new Map();
+  state.seenHintIds = [];
+  state.learningRunRequestId = null;
   state.artifactSource = source;
   state.root = descriptor.root || null;
 

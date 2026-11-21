@@ -210,6 +210,36 @@
       "message": "可以先休息一下，这个任务会留在这里。",
       "nextStep": "选择稍后回来",
       "uncertainty": "节奏由你来决定。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "action_outside_loop",
+      "learnerChoice": "none",
+      "level": 1,
+      "action": "point_to_block",
+      "message": "这块前进只执行了一次。放进重复积木之后，它会动几次？",
+      "nextStep": "看看前进积木的位置",
+      "uncertainty": "可以改一处再运行看看。"
+    },
+    {
+      "taskId": "variant",
+      "errorPattern": "move_steps_mismatch",
+      "learnerChoice": "none",
+      "level": 1,
+      "action": "point_to_block",
+      "message": "看看前进积木上的数字，它决定每一轮要走几步。现在每轮走几步？",
+      "nextStep": "对照目标，看看前进积木的数字",
+      "uncertainty": "修改后可以重新预测。"
+    },
+    {
+      "taskId": "transfer-square",
+      "errorPattern": "square_loop_structure",
+      "learnerChoice": "none",
+      "level": 1,
+      "action": "point_to_block",
+      "message": "海龟已经走完四条边。前进和转弯这两个动作，可以一起放进哪个积木？",
+      "nextStep": "找出每条边都要做的动作",
+      "uncertainty": "换一种积木组合后，再看看路线。"
     }
   ]
 }

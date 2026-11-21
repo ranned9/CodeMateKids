@@ -33,7 +33,10 @@ def tasks() -> list[dict]:
 def test_allowed_kinds_include_expression_inputs_and_host() -> None:
     for task in tasks():
         kinds = set(task["allowedBlockKinds"])
-        assert kinds == EXPECTED_KINDS, task["taskId"]
+        if task["taskId"] == "transfer-square":
+            assert kinds == {"event.start", "control.repeat", "motion.move", "motion.turn", "value.number"}
+        else:
+            assert kinds == EXPECTED_KINDS, task["taskId"]
 
 
 def test_allowed_kinds_all_runnable() -> None:

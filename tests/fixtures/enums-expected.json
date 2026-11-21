@@ -1,0 +1,21 @@
+{
+  "PATTERN_TEACHING": [
+    "program_invalid",
+    "run_incomplete",
+    "not_run",
+    "square_loop_structure",
+    "action_outside_loop",
+    "loop_count_mismatch",
+    "move_steps_mismatch",
+    "prediction_mismatch",
+    "goal_met",
+    "unknown"
+  ],
+  "PATTERN_NON_TEACHING": ["default", "personal_info", "ask_answer", "off_topic"],
+  "OUTCOME": ["goal_met", "goal_missed", "run_incomplete"],
+  "TRACE_QUALITY": ["verified", "unavailable", "inconsistent"],
+  "PREDICTION_MATCH": ["exact", "carried", "none"],
+  "SUPPORT": ["none", "assisted", "unknown"],
+  "TRANSFER_STATUS": ["not_started", "in_progress", "completed", "skipped"],
+  "NEXT_ACTION": ["predict", "run", "compare", "locate_block", "replay", "edit_one", "open_next_task", "none"]
+}

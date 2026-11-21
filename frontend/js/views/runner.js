@@ -1,5 +1,6 @@
 /** 运行控制：门禁、重入保护、SSE 归属、停止与离开运行上下文。 */
-import { buildProgram, cloneTree, findBlock, programWorkspace, validateTree } from "../editor/model.js";
+import { API } from "../api.js";
+import { buildProgram, cloneTree, findBlock, programWorkspace } from "../editor/model.js";
 import { evaluateRunGate } from "../core/runGate.js";
 import {
   createRunSession,
@@ -10,12 +11,13 @@ import {
   release,
   tryBegin,
 } from "../core/runSession.js";
-import { captureContext, isContextActive, nextPageVersion } from "../core/viewContext.js";
+import { captureContext, isContextActive, isCurrentContext, nextPageVersion } from "../core/viewContext.js";
 import { classifyResult, createRunViewContext, programFingerprint } from "../ux/runContext.js";
 import { renderResult, resetObjectView, updateObjectView } from "./result.js";
-import { setPhase } from "../state.js";
+import { prepareWorkspaceChange } from "../workflows/workspace-change.js";
 import { LOOP_OBSERVATION, repeatedMoveInLoop } from "../ux/loopEvidence.js";
 import { predictionSourceFor } from "../ux/prediction.js";
+import { buildLearningContext, workspaceLearningScope } from "../ux/learningContext.js";
 
 const POLL_INTERVAL_MS = 200;
 const POLL_ATTEMPTS = 25;
@@ -24,25 +26,25 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-export function createRunner({ elements, state, editor, toast, refresh, resetToTask, getResultActions = () => ({}) }) {
+export function createRunner({
+  elements, state, editor, toast, refresh, resetToTask, getResultActions = () => ({}),
+  api = API, onPhaseChange = () => {},
+}) {
   let streamText = "";
   let source = null;
   let lastStdoutSeq = 0;
   let recoveringRequestId = null;
+  let terminalRequest = null;
   let currentRun = null;
   const session = createRunSession();
 
-  function gateResult() {
-    return evaluateRunGate({
-      state,
-      taskId: state.activeTaskId,
-      root: state.root,
-      validate: () => validateTree(state.root),
-    });
+  function setPhase(phase) {
+    state.phase = phase;
+    onPhaseChange();
   }
 
   function gateReason() {
-    return gateResult().reason;
+    return evaluateRunGate({ state }).reason;
   }
 
   function phaseLabel() {
@@ -86,12 +88,20 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       return;
     }
     const task = state.tasks.get(ctx.taskId);
+    const studentId = state.studentId ?? null;
     const requestId = `run-${crypto.randomUUID().slice(0, 12)}`;
     const cancelToken = crypto.randomUUID().replaceAll("-", "");
     const acceptedInfo = { requestId, cancelToken, taskId: ctx.taskId, pageVersion: ctx.pageVersion };
-    const streamContext = { ...ctx, requestId };
+    const streamContext = { ...ctx, requestId, studentId };
     const root = cloneTree(state.root);
     const program = buildProgram(root, task);
+    const learningScope = workspaceLearningScope(state, task.taskId);
+    const learningContext = learningScope ? buildLearningContext({
+      scope: learningScope,
+      predictionId: state.predictionIds?.get(task.taskId),
+      seenHintIds: state.seenHintIds || [],
+      workspaceSource: state.artifactSource,
+    }) : undefined;
     const runContext = createRunViewContext({
       requestId,
       taskId: ctx.taskId,
@@ -101,13 +111,16 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
       predictionSource: predictionSourceFor(state, ctx.taskId),
       fingerprint: programFingerprint(root),
     });
-    currentRun = { context: runContext, task };
+    currentRun = { context: runContext, task, studentId };
+    state.learningRunRequestId = requestId;
 
     state.lastRunStatus = null;
     state.runIssue = "";
     state.errorBlockId = null;
+    state.runningBlockId = null;
     state.runRecovery = null;
     editor.state.errorBlockId = null;
+    editor.state.runningBlockId = null;
     editor.cancelDrag?.("running");
     setPhase("validating");
     updateControls();
@@ -115,7 +128,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     lastStdoutSeq = 0;
 
     try {
-      await window.__cmkApi.submitRun({
+      await api.submitRun({
         protocolVersion: 1,
         requestId,
         cancelToken,
@@ -124,11 +137,11 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         courseRef: program.courseRef,
         taskId: task.taskId,
         mode: "demo",
-      });
+        ...(learningContext ? { learningContext } : {}),
+      }, studentId);
     } catch (error) {
       if (session.disposed || !isContextActive(state, ctx)) {
-        release(session);
-        state.runRecovery = null;
+        finishAbandonedRun();
         updateControls();
         return;
       }
@@ -161,15 +174,12 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     }
 
     markAccepted(session, acceptedInfo);
-    state.runRequestId = requestId;
-    state.cancelToken = cancelToken;
 
     if (session.disposed || session.phase === "abandoned" || ctx.pageVersion !== (state.pageVersion || 0)) {
-      await cancelAccepted(requestId, cancelToken);
-      const snapshot = await waitForTerminal(requestId, 10, 100);
+      const snapshot = await cancelAndWait(requestId, cancelToken);
+      if (session.requestId !== requestId) return;
       if (snapshot) {
-        state.runRecovery = null;
-        release(session);
+        finishAbandonedRun();
       } else {
         state.runRecovery = "上一次还没停下来，可以再点停止。";
         session.phase = "cancelling";
@@ -195,14 +205,15 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     state.lastRunContext = runContext;
     state.lastResultOwnership = classifyResult({ state, record: runContext });
     if (elements.objectView) {
-      updateObjectView(elements.objectView, data.objects || [], task);
+      updateObjectView(elements.objectView, data.objects || [], task, data.learning);
     }
     renderResult(elements.result, state, task, data, getResultActions());
   }
 
   function openStream(ctx, task, requestId, cancelToken, runContext, root) {
     closeStream();
-    const eventSource = new EventSource(`/api/v1/runs/${requestId}/events`);
+    const owner = ctx.studentId ? `?studentId=${encodeURIComponent(ctx.studentId)}` : "";
+    const eventSource = new EventSource(`/api/v1/runs/${requestId}/events${owner}`);
     source = eventSource;
 
     const active = () => {
@@ -278,11 +289,14 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
         if (task.type === "main") {
           state.mainCompletedHint = true;
         }
-        toast(task.type === "variant" ? "变式也完成啦，可以去看看小总结。" : "这次做到了！");
+        toast("这次做到了！");
       } else if (data.status === "completed") {
         toast("运行完成，和目标比一比。");
       } else {
         toast("程序没有跑完，看看结果区的建议。");
+      }
+      if (data.memorySaved === false) {
+        toast("这次运行已结束，学习进度暂未保存。", true);
       }
       updateControls();
       refresh();
@@ -302,17 +316,21 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     if (recoveringRequestId === requestId) {
       return;
     }
-    const ctx = captureContext(state, session.taskId);
+    const ctx = captureContext(state);
     recoveringRequestId = requestId;
     session.phase = "cancelling";
     updateControls();
     try {
-      await cancelAccepted(requestId, cancelToken);
-      const snapshot = await waitForTerminal(requestId, 10, 100);
-      if (session.requestId !== requestId || !isContextActive(state, ctx, session)) {
+      const snapshot = await cancelAndWait(requestId, cancelToken, 10, 100);
+      if (session.requestId !== requestId || !isCurrentContext(state, ctx)) {
         return;
       }
       if (snapshot) {
+        if (session.disposed) {
+          finishAbandonedRun();
+          toast("上一次运行已结束，可以继续。");
+          return;
+        }
         state.runRecovery = null;
         state.lastRunStatus = snapshot.status;
         state.runningBlockId = null;
@@ -347,7 +365,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
 
   async function cancelAccepted(requestId, cancelToken) {
     try {
-      await window.__cmkApi.cancelRun(requestId, cancelToken);
+      await api.cancelRun(requestId, cancelToken, currentRun?.studentId);
     } catch {
       // 停止响应可能丢失，是否结束以随后查询的运行摘要为准。
     }
@@ -356,7 +374,7 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
   async function waitForTerminal(requestId, attempts = POLL_ATTEMPTS, interval = POLL_INTERVAL_MS) {
     for (let index = 0; index < attempts; index += 1) {
       try {
-        const snapshot = await window.__cmkApi.getRun(requestId);
+        const snapshot = await api.getRun(requestId, currentRun?.studentId);
         if (snapshot.finished) {
           return snapshot;
         }
@@ -370,6 +388,26 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     return null;
   }
 
+  function cancelAndWait(requestId, cancelToken, attempts, interval) {
+    if (terminalRequest?.requestId === requestId) return terminalRequest.promise;
+    const request = { requestId };
+    request.promise = cancelAccepted(requestId, cancelToken)
+      .then(() => waitForTerminal(requestId, attempts, interval))
+      .finally(() => {
+        if (terminalRequest === request) terminalRequest = null;
+      });
+    terminalRequest = request;
+    return request.promise;
+  }
+
+  function finishAbandonedRun() {
+    release(session);
+    state.runRecovery = null;
+    state.runningBlockId = null;
+    editor.state.runningBlockId = null;
+    setPhase("editing");
+  }
+
   async function stop() {
     if (!session.requestId) {
       if (session.phase === "validating") {
@@ -381,14 +419,14 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     }
     const { requestId, cancelToken } = session;
     const eventSource = source;
-    if (!eventSource && !session.disposed) {
+    if (!eventSource) {
       await recoverDisconnectedRun(requestId, cancelToken);
       return;
     }
     enterCancelling(session);
     updateControls();
     try {
-      await window.__cmkApi.cancelRun(requestId, cancelToken);
+      await api.cancelRun(requestId, cancelToken, currentRun?.studentId);
       if (session.requestId === requestId && source === eventSource) {
         state.runRecovery = null;
         toast("正在停止…");
@@ -405,6 +443,10 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
 
   async function leaveRunContext({ reason = "leave" } = {}) {
     nextPageVersion(state);
+    if (!isBusy(session)) {
+      closeStream();
+      return { stopped: true, reason };
+    }
     markDisposed(session);
     closeStream();
 
@@ -417,20 +459,18 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
 
     const requestId = session.requestId;
     if (requestId) {
-      await cancelAccepted(requestId, session.cancelToken);
-      const snapshot = await waitForTerminal(requestId);
-      if (snapshot) {
-        state.runRecovery = null;
-        release(session);
-      } else {
-        state.runRecovery = "上一次还没停下来，可以再点停止。";
-        session.phase = "cancelling";
+      const snapshot = await cancelAndWait(requestId, session.cancelToken);
+      if (session.requestId === requestId) {
+        if (snapshot) {
+          finishAbandonedRun();
+        } else {
+          state.runRecovery = "上一次还没停下来，可以再点停止。";
+          session.phase = "cancelling";
+        }
       }
     } else if (session.phase === "validating" || session.phase === "abandoned") {
       state.runRecovery = "正在等待提交结果，稍后再试。";
       session.phase = "abandoned";
-    } else {
-      release(session);
     }
     updateControls();
     return { stopped: !isBusy(session), reason };
@@ -441,14 +481,16 @@ export function createRunner({ elements, state, editor, toast, refresh, resetToT
     if (!task) {
       return;
     }
-    if (state.dirty && !window.confirm("丢弃还没保存的修改，恢复这个任务的初始程序？")) {
-      return;
-    }
-    await leaveRunContext({ reason: "reset" });
-    if (isBusy(session)) {
+    const outcome = await prepareWorkspaceChange({
+      state,
+      reason: "reset",
+      confirm: () => !state.dirty || window.confirm("丢弃还没保存的修改，恢复这个任务的初始程序？"),
+      leaveRunContext: (reason) => leaveRunContext({ reason }),
+    });
+    if (outcome === "run-pending") {
       toast("上一次运行还没有停下来，稍后再试。");
-      return;
     }
+    if (outcome !== "ready") return;
     if (resetToTask) {
       resetToTask(task.taskId);
     } else {

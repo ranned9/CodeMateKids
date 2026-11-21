@@ -82,7 +82,7 @@ assert.ok(layout.blocks.length >= 3);
 assert.ok(layout.slots.some((slot) => slot.type === "body" && slot.ownerId === repeatId));
 assert.ok(layout.slots.some((slot) => slot.type === "slot" && slot.ownerId === printId));
 
-const validation = model.validateTree(root);
+const validation = model.validateTree(root, definitions);
 assert.equal(validation.ok, true);
 
 const snapshot = model.cloneTree(root);
@@ -338,6 +338,10 @@ assert.equal(JSON.stringify(richRoot).includes("fieldName"), false);
 assert.equal(targetsModule.hasPlaceableTarget(emptyModel, numberDefinition, schema), false);
 assert.equal(targetsModule.hasPlaceableTarget(emptyModel, moveDefinition, schema), true);
 assert.equal(model.buildProgram(richRoot, { taskId: "main" }).courseRef.version, 1);
+assert.deepEqual(model.buildProgram(richRoot, {
+  taskId: "exercise",
+  initialProgram: { courseRef: { courseId: "sample-course", version: 2 } },
+}).courseRef, { courseId: "sample-course", taskId: "exercise", version: 2 });
 assert.equal(
   model.buildProgram(richRoot, { taskId: "main" }, "demo-loop", { courseVersion: 2 }).courseRef.version,
   2,
@@ -685,7 +689,7 @@ assert.equal(separated.root[1].root.next.blockId, speaking.node.blockId);
 assert.equal(model.runnableRoots(separated.root).length, 1);
 
 const withDraft = addToWorkspace(separated.root, "text.print", { freePosition: { x: 80, y: 285 } });
-assert.equal(model.validateTree(withDraft.root).ok, true);
+assert.equal(model.validateTree(withDraft.root, definitions).ok, true);
 const withLooseNumber = addToWorkspace(withDraft.root, "value.number", { freePosition: { x: 520, y: 55 } });
 const numberId = withLooseNumber.node.blockId;
 const withNumber = addToWorkspace(withLooseNumber.root, "value.number", {

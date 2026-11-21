@@ -64,6 +64,14 @@ export function buildResultSummary({
       goalLine = `目标 ${targetSteps} 步，实际走了 ${steps} 步，超出了 ${gap} 步。`;
     }
   }
+  if (task?.teaching?.goalKind === "square") {
+    const route = data?.learning?.routeMet;
+    const structure = data?.learning?.structureMet;
+    reached = data?.status === "completed" ? Boolean(route && structure) : null;
+    goalLine = route == null ? "运行后看看海龟走过的路线。" : route
+      ? structure ? "海龟走完了四条边，前进和转弯也在同一个循环里。" : "路线达到了舞台条件。接下来把前进和转弯放进同一个循环。"
+      : "看看海龟走过的边。它回到起点了吗？";
+  }
 
   let nextAction = "backToBlocks";
   if (ownership === "stale") {
@@ -71,7 +79,7 @@ export function buildResultSummary({
   } else if (data?.error) {
     nextAction = "backToBlocks";
   } else if (data?.success) {
-    nextAction = task?.type === "variant" ? "summary" : "variant";
+    nextAction = task?.nextTaskId ? "nextTask" : task?.type === "variant" ? "summary" : "variant";
   } else if (data) {
     nextAction = "hint";
   }

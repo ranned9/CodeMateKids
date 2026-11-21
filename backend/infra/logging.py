@@ -25,6 +25,9 @@ ALLOWED_FIELDS: tuple[str, ...] = (
     "pythonVersion",
     "stderrSummary",
     "level",
+    "modelSource",
+    "modelRevision",
+    "modelCategory",
 )
 
 _WRITE_LOCK = threading.Lock()

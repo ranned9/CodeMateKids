@@ -34,7 +34,9 @@ TASK_KEYWORDS = (
     "海龟",
     "为什么",
     "怎么",
-    "角色",
+    "正方形",
+    "转弯",
+    "直角",
 )
 
 
@@ -51,13 +53,9 @@ def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
 
 
 def _select_error_pattern(context: dict[str, Any]) -> str:
-    message = str(context.get("message", ""))
-    if _contains_any(message, PERSONAL_TOKENS):
-        return "personal_info"
-    if _contains_any(message, DIRECT_ANSWER_TOKENS):
-        return "ask_answer"
-    if message.strip() and not _contains_any(message, TASK_KEYWORDS):
-        return "off_topic"
+    redirected = redirect_pattern(context)
+    if redirected:
+        return redirected
     summary = str(context.get("program_summary", ""))
     if not context.get("program_valid", True):
         return "action_outside_loop"
@@ -71,6 +69,17 @@ def _select_error_pattern(context: dict[str, Any]) -> str:
     if "重复" not in summary:
         return "action_outside_loop"
     return "default"
+
+
+def redirect_pattern(context: dict[str, Any]) -> str | None:
+    message = str(context.get("message", ""))
+    if _contains_any(message, PERSONAL_TOKENS):
+        return "personal_info"
+    if _contains_any(message, DIRECT_ANSWER_TOKENS):
+        return "ask_answer"
+    if message.strip() and not _contains_any(message, TASK_KEYWORDS):
+        return "off_topic"
+    return None
 
 
 def decide(context: dict[str, Any]) -> Decision:
@@ -114,6 +123,56 @@ def decide(context: dict[str, Any]) -> Decision:
         3: "partial_example",
     }[level]
     return Decision(ladder_action, level, error_pattern, "按提示阶梯选择动作")
+
+
+PATTERN_ACTIONS = {
+    "program_invalid": "point_to_block",
+    "run_incomplete": "hint",
+    "not_run": "ask_question",
+    "square_loop_structure": "point_to_block",
+    "action_outside_loop": "point_to_block",
+    "loop_count_mismatch": "show_execution",
+    "move_steps_mismatch": "break_down",
+    "prediction_mismatch": "ask_question",
+    "goal_met": "explain",
+    "unknown": "hint",
+}
+
+
+def decide_with_facts(facts: Any, context: dict[str, Any]) -> Decision:
+    """按教学事实决策；0 级语义与孩子选择优先保持不变。"""
+    from backend.tutor.diagnosis import classify
+
+    choice = str(context.get("learner_choice", "hint"))
+    if choice not in LEARNER_CHOICES:
+        choice = "hint"
+    if choice == "self_try":
+        return Decision("hint", 0, "default", "孩子想自己试，停止追加提示")
+    if choice == "skip":
+        return Decision("offer_variant", 0, "default", "孩子选择跳过，保留回到任务的入口")
+
+    pattern = redirect_pattern(context)
+    if pattern:
+        return Decision("hint", 1, pattern, "先转回学习任务")
+    pattern = context.get("pattern") or classify(facts)
+    highest = int(context.get("highest_hint", 0))
+    if choice == "example":
+        return Decision("analogy", 1, pattern, "换一种说法")
+    if pattern == "goal_met":
+        return Decision("explain", 1, pattern, "目标已达成，说出本次观察")
+
+    if choice == "more_hint":
+        level = 3 if highest >= 2 else 2
+    else:
+        level = 2 if context.get("repeated_pattern") else 1
+    action = PATTERN_ACTIONS.get(pattern, "hint")
+    if pattern == "loop_count_mismatch" and (level == 1 or not context.get("replay_available")):
+        action = "ask_question" if level == 1 else "point_to_block"
+    if pattern == "move_steps_mismatch":
+        action = "show_execution" if level == 2 and context.get("replay_available") else "point_to_block"
+    if level == 3:
+        action = "partial_example"
+    return Decision(action, level, pattern, "按事实与提示阶梯选择动作")
 
 
 def is_diagnostic_text(text: str) -> bool:

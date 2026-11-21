@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.tutor.enums import all_patterns
+
 TUTOR_ACTIONS = (
     "ask_question",
     "hint",
@@ -17,15 +19,7 @@ TUTOR_ACTIONS = (
     "offer_variant",
 )
 LEARNER_CHOICES = ("hint", "more_hint", "example", "self_try", "skip", "none")
-ERROR_PATTERNS = (
-    "default",
-    "personal_info",
-    "ask_answer",
-    "off_topic",
-    "action_outside_loop",
-    "loop_count_mismatch",
-    "move_steps_mismatch",
-)
+ERROR_PATTERNS = all_patterns()
 MAX_DIAGNOSTICS = 100
 
 

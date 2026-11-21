@@ -11,10 +11,16 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from backend.api.routers import build_router
+from backend.api.security import require_local_same_origin
+from backend.api.student_context import StudentSessions
 from backend.infra.config import BASE_DIR, Settings, load_settings
 from backend.infra.errors import ApiError, fail
 from backend.service.run import RunManager
 from backend.session.store import SessionStore
+from backend.session.conversations import ConversationStore
+from backend.session.learning_store import LearningStore
+from backend.tutor.model_config import ModelConfigStore
+from backend.tutor.chat_adapter import send as send_model_request
 
 FRONTEND_DIR = BASE_DIR / "frontend"
 
@@ -36,7 +42,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session = SessionStore()
+    app.state.learning = LearningStore(settings.learning_db_path)
+    app.state.student_sessions = StudentSessions(app.state.learning)
+    app.state.conversations = ConversationStore()
+    app.state.classroom_conversations = ConversationStore(classroom=True)
     app.state.runs = RunManager(settings, app.state.session)
+    app.state.model_config = ModelConfigStore(settings, persist_path=settings.log_dir / "model-config.local.json")
+    app.state.model_resolver = None
+    app.state.model_probe = None
+    app.state.model_transport = send_model_request
+
+    @app.middleware("http")
+    async def guard_model_config(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/v1/tutor/model-config"):
+            try:
+                if request.method == "POST":
+                    require_local_same_origin(request)
+            except ApiError as exc:
+                response = JSONResponse(status_code=exc.spec.http_status, content=fail(exc.code))
+            else:
+                response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        return await call_next(request)
 
     @app.exception_handler(ApiError)
     def handle_api_error(request: Request, exc: ApiError) -> JSONResponse:

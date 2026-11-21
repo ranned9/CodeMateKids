@@ -14,6 +14,7 @@ RUN_STATUSES = (
     "crashed",
 )
 EVENT_KINDS = ("block_enter", "block_exit", "stdout", "exception")
+MAX_EVENTS = 2000
 
 
 class ProtocolError(ValueError):

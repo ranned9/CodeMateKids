@@ -2,13 +2,40 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+IDENTIFIER_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+CONTENT_VERSION_PATTERN = r"^[0-9]+\.[0-9]+\.[0-9]+$"
+Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN)]
+
+
+class LearningScope(ApiModel):
+    """一次练习的定位四元组；全部可选，缺省走 0.4.0 原路径。"""
+
+    courseId: str = Field(default="demo-loop", max_length=64)
+    contentVersion: str | None = Field(default=None, pattern=CONTENT_VERSION_PATTERN)
+    taskId: str | None = Field(default=None, max_length=64)
+    workspaceId: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+
+
+class LearningContext(ApiModel):
+    """教学增强上下文；任一字段缺省都不影响既有请求语义。"""
+
+    scope: LearningScope | None = None
+    program: dict[str, Any] | None = None
+    predictionId: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    seenHintIds: list[Identifier] | None = Field(default=None, max_length=8)
+    workspaceSource: Literal["task", "project"] | None = None
+    runRequestId: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    turnId: Identifier | None = None
+    replyToTurnId: Identifier | None = None
 
 
 class StartupCheckItem(ApiModel):
@@ -41,6 +68,7 @@ class StartupCheckResponse(ApiModel):
     courseVersion: int
     schemaVersion: str
     tutorMode: Literal["mock", "model"]
+    tutorChatEnabled: bool = True
     elapsedMs: int
     appVersion: str
     cached: bool = False
@@ -58,6 +86,7 @@ class RunSnapshotResponse(ApiModel):
 class PredictionRequest(ApiModel):
     taskId: str
     value: int = Field(ge=0, le=1000)
+    learningContext: LearningContext | None = None
 
 
 class PredictionResponse(ApiModel):
@@ -65,6 +94,7 @@ class PredictionResponse(ApiModel):
     value: int
     runUnlocked: bool = True
     attempts: int
+    predictionId: str | None = None
 
 
 class FeedbackRequest(ApiModel):
@@ -99,6 +129,71 @@ class TutorHintRequest(ApiModel):
     programSummary: str = Field(default="", max_length=200)
     programValid: bool = True
     lastRunStatus: str | None = Field(default=None, max_length=40)
+    learningContext: LearningContext | None = None
+
+
+class ChatLearningContext(LearningContext):
+    scope: LearningScope
+    turnId: Identifier
+
+
+class TutorChatRequest(ApiModel):
+    taskId: str = Field(min_length=1, max_length=64)
+    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
+    learningContext: ChatLearningContext
+    selectedBlockId: Identifier | None = None
+
+
+class StudentCreateRequest(ApiModel):
+    displayName: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=24)]
+
+
+class TutorLearning(ApiModel):
+    pattern: str | None = None
+    runRequestId: str | None = None
+    anchorBlockId: str | None = None
+    nextAction: str | None = None
+    turnId: Identifier | None = None
+    awaitingAnswer: bool | None = None
+
+
+class TutorHintResponse(ApiModel):
+    requestId: str | None = None
+    action: str
+    message: str
+    nextStep: str
+    evidenceUsed: list[str]
+    uncertainty: str
+    answerLevel: int
+    mode: Literal["mock", "model"]
+    showAsDemo: bool
+    fallbackReason: str | None = None
+    learning: TutorLearning | None = None
+
+
+class TransferInfo(ApiModel):
+    taskId: str
+    status: str
+    support: str
+    runRequestId: str | None = None
+
+
+class SessionSummaryResponse(ApiModel):
+    concepts: list[str]
+    completedTasks: list[str]
+    independentThings: list[str]
+    toVerify: list[str]
+    nextStep: str
+    missing: list[str]
+    skippedTasks: list[str]
+    variantAvailable: bool
+    mainCompleted: bool
+    variantCompleted: bool
+    note: str
+    taskCount: int
+    transfer: TransferInfo | None = None
+    nextTaskId: str | None = None
+    observation: str | None = None
 
 
 class RunSubmitRequest(ApiModel):
@@ -111,3 +206,19 @@ class RunSubmitRequest(ApiModel):
     courseRef: dict[str, Any]
     taskId: str
     mode: Literal["demo"] = "demo"
+    learningContext: LearningContext | None = None
+
+class ModelConfigTestRequest(ApiModel):
+    expectedRevision: int = Field(ge=0)
+    baseUrl: str = Field(min_length=1, max_length=512)
+    model: str = Field(min_length=1, max_length=160)
+    apiKey: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+class ModelConfigActivateRequest(ApiModel):
+    expectedRevision: int = Field(ge=0)
+    testId: Identifier | None = None
+
+
+class ModelConfigDisableRequest(ApiModel):
+    expectedRevision: int = Field(ge=0)

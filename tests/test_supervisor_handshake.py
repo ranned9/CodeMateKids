@@ -12,20 +12,6 @@ from tests.helpers import simple_program
 LIMITS = {"wallTimeMs": 1000, "memoryMb": 128, "maxOutputBytes": 16384, "maxRecursionDepth": 200}
 
 
-def _run_with(worker_path, tmp_path):
-    supervisor_mod.WORKER_PATH = worker_path
-    try:
-        return run_program(
-            simple_program(),
-            dict(LIMITS),
-            "run-handshake",
-            threading.Event(),
-            lambda frame: None,
-        )
-    finally:
-        pass
-
-
 def _reader_threads() -> list[threading.Thread]:
     return [
         item
@@ -42,7 +28,6 @@ def _write_worker(tmp_path, name: str, body: str):
 
 def test_worker_never_outputs(tmp_path, monkeypatch) -> None:
     path = _write_worker(tmp_path, "silent.py", "import time\ntime.sleep(10)\n")
-    original = supervisor_mod.WORKER_PATH
     monkeypatch.setattr(supervisor_mod, "WORKER_PATH", path)
     started = time.perf_counter()
     result = run_program(simple_program(), dict(LIMITS), "run-hs-1", threading.Event(), lambda f: None)
@@ -51,7 +36,6 @@ def test_worker_never_outputs(tmp_path, monkeypatch) -> None:
     assert result["error"]["code"] == "RUNNER_CRASHED"
     assert elapsed <= 2.8
     assert _reader_threads() == []
-    assert supervisor_mod.WORKER_PATH == path or original  # noqa: S101
 
 
 def test_worker_half_line_hangs(tmp_path, monkeypatch) -> None:
@@ -88,3 +72,15 @@ def test_normal_path_keeps_first_event() -> None:
     assert result["events"][0]["seq"] == 1
     assert result["events"][0]["kind"] == "block_enter"
     assert _reader_threads() == []
+
+
+def test_cancelled_before_worker_start(monkeypatch) -> None:
+    def fail_if_started(*args, **kwargs):
+        raise AssertionError("cancelled runs must not start a worker")
+
+    monkeypatch.setattr(supervisor_mod.subprocess, "Popen", fail_if_started)
+    cancelled = threading.Event()
+    cancelled.set()
+    result = run_program(simple_program(), dict(LIMITS), "run-hs-cancelled", cancelled, lambda frame: None)
+    assert result["status"] == "cancelled"
+    assert result["error"]["code"] == "RUN_CANCELLED"

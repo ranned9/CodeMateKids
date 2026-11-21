@@ -2,6 +2,7 @@
 import { API } from "../api.js";
 import { captureContext, isCurrentContext } from "../core/viewContext.js";
 import { renderStartup } from "../views/startup.js";
+import { prepareWorkspaceChange } from "./workspace-change.js";
 
 export function createCourseWorkflow({
   state, elements, confirmLeaveDirty, leaveRunContext, applyTask, renderAll, updateRunControls, toast,
@@ -21,10 +22,12 @@ export function createCourseWorkflow({
     if (state.contentVersion !== course.contentVersion) {
       state.prediction?.clear();
       state.predictionContext?.clear();
+      state.skippedTaskIds?.clear();
       state.lessonObservation = "";
     }
     state.contentVersion = course.contentVersion || null;
-    state.variantAvailable = Boolean(tasks.get("variant")?.enterable);
+    const main = course.tasks.find((task) => task.type === "main");
+    state.variantAvailable = Boolean(tasks.get(main?.variantTaskId || "variant")?.enterable);
     if (target) {
       applyTask(target.taskId);
     } else {
@@ -34,31 +37,35 @@ export function createCourseWorkflow({
   }
 
   function renderReport() {
+    const courseUpdatePending = hasPendingCourse();
+    const enterClassroom = () => {
+      if (onEnterClassroom) {
+        onEnterClassroom();
+      } else {
+        elements.banner.hidden = true;
+      }
+    };
     renderStartup(state.startup, elements, {
-      courseUpdatePending: hasPendingCourse(),
+      courseUpdatePending,
       onRetry: refreshStartup,
-      onEnter: () => {
-        if (onEnterClassroom) {
-          onEnterClassroom();
-        } else {
-          elements.banner.hidden = true;
-        }
-      },
+      onEnter: enterClassroom,
     });
+    if (state.startup.status === "ready" && !courseUpdatePending && state.tasks.get(state.activeTaskId)?.enterable) {
+      enterClassroom();
+    }
   }
 
   async function reloadCourseForContent() {
     const ctx = captureContext(state);
     try {
       const course = await API.course();
-      if (!isCurrentContext(state, ctx) || !(await confirmLeaveDirty()) || !isCurrentContext(state, ctx)) {
-        return;
-      }
-      const revision = state.programRevision;
-      const leaving = leaveRunContext("content");
-      const nextContext = captureContext(state);
-      await leaving;
-      if (!isCurrentContext(state, nextContext) || revision !== state.programRevision) {
+      const outcome = await prepareWorkspaceChange({
+        state, context: ctx, reason: "content", confirm: confirmLeaveDirty, leaveRunContext,
+      });
+      if (outcome !== "ready") {
+        if (outcome === "run-pending") {
+          toast("上一次运行还没有停下来，可以稍后再刷新课程。", true);
+        }
         return;
       }
       if (installCourse(course)) {
@@ -67,7 +74,9 @@ export function createCourseWorkflow({
         toast("课程内容已更新，但当前没有可运行的任务。", true);
       }
     } catch (error) {
-      toast(error.messageForChild || "课程内容刷新失败。", true);
+      if (isCurrentContext(state, ctx)) {
+        toast(error.messageForChild || "课程内容刷新失败。", true);
+      }
     }
   }
 

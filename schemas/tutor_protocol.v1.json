@@ -78,6 +78,57 @@
           }
         },
         "learnerChoice": {"enum": ["hint", "more_hint", "example", "self_try", "skip", "none"]},
+        "teachingDecision": {
+          "type": "object",
+          "required": ["action", "allowedLevel", "pattern", "factIds", "nextAction"],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "ask_question",
+                "hint",
+                "point_to_block",
+                "show_execution",
+                "analogy",
+                "partial_example",
+                "break_down",
+                "explain",
+                "offer_variant"
+              ]
+            },
+            "allowedLevel": {"type": "integer", "minimum": 0, "maximum": 3},
+            "pattern": {
+              "enum": [
+                "program_invalid",
+                "run_incomplete",
+                "not_run",
+                "square_loop_structure",
+                "action_outside_loop",
+                "loop_count_mismatch",
+                "move_steps_mismatch",
+                "prediction_mismatch",
+                "goal_met",
+                "unknown"
+              ]
+            },
+            "factIds": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1}
+            },
+            "nextAction": {
+              "enum": [
+                "predict",
+                "run",
+                "compare",
+                "locate_block",
+                "replay",
+                "edit_one",
+                "open_next_task",
+                "none"
+              ]
+            }
+          }
+        },
         "safety": {
           "type": "object",
           "required": ["demoDataOnly"],
@@ -134,7 +185,11 @@
         "answerLevel": {"enum": [0, 1, 2, 3], "description": "0 表示未追加提示，仅用于 self_try/skip"},
         "mode": {"enum": ["mock", "model"]},
         "showAsDemo": {"type": "boolean"},
-        "fallbackReason": {"type": "string"}
+        "fallbackReason": {"type": "string"},
+        "factIdsUsed": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
       }
     }
   }

@@ -76,7 +76,7 @@ globalThis.window = { setTimeout: noOp, clearTimeout: noOp, addEventListener: no
 const schema = JSON.parse(readFileSync(new URL("../schemas/blocks.v1.json", import.meta.url), "utf8"));
 const fixture = JSON.parse(readFileSync(new URL("../content/demo-loop/course.json", import.meta.url), "utf8"));
 const initialVersion = fixture.contentVersion;
-const newVersion = "1.3.0";
+const newVersion = `${initialVersion.split(".").slice(0, 2).join(".")}.${Number(initialVersion.split(".")[2]) + 1}`;
 let course = {
   course: { title: fixture.title, learningObjectives: fixture.learningObjectives },
   contentVersion: initialVersion,

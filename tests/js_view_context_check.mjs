@@ -1,4 +1,4 @@
-/** RG-06 / RG-15：页面版本归属、旧辅导丢弃与 skip 去重。 */
+/** 页面归属、工作区切换条件与跳过反馈重试。 */
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -8,7 +8,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const asUrl = (relative) => pathToFileURL(path.join(root, relative)).href;
 
 const view = await import(asUrl("frontend/js/core/viewContext.js"));
-const guardModule = await import(asUrl("frontend/js/core/asyncGuard.js"));
+const { createSkipRecorder } = await import(asUrl("frontend/js/core/asyncGuard.js"));
+const { prepareWorkspaceChange } = await import(asUrl("frontend/js/workflows/workspace-change.js"));
 
 const state = { activeTaskId: "main", pageVersion: 0 };
 const oldContext = view.captureContext(state, "main");
@@ -32,17 +33,42 @@ const crossContext = view.captureContext(state, "variant");
 state.activeTaskId = "main";
 assert.equal(view.isCurrentContext(state, crossContext), false, "跨任务回调必须丢弃");
 
-guardModule.resetAsyncGuard();
-const first = guardModule.nextSeq();
-const second = guardModule.nextSeq();
-assert.equal(guardModule.accept(first), true);
-assert.equal(guardModule.accept(second), true);
-assert.equal(guardModule.accept(first), false, "较旧回复必须被丢弃");
+state.programRevision = 1;
+const options = { state, reason: "test", confirm: () => true };
+assert.equal(await prepareWorkspaceChange({
+  ...options,
+  leaveRunContext() {
+    view.nextPageVersion(state);
+    return { stopped: false };
+  },
+}), "run-pending");
+assert.equal(await prepareWorkspaceChange({
+  ...options,
+  leaveRunContext: async () => {
+    view.nextPageVersion(state);
+    await Promise.resolve();
+    state.programRevision += 1;
+    return { stopped: true };
+  },
+}), "superseded");
+assert.equal(await prepareWorkspaceChange({
+  ...options,
+  isLatest: () => false,
+  leaveRunContext() { assert.fail("过期操作不应改变课堂"); },
+}), "superseded");
 
-guardModule.resetAsyncGuard();
-assert.equal(guardModule.markSkipSubmitted("main"), true);
-assert.equal(guardModule.markSkipSubmitted("main"), false);
-assert.equal(guardModule.wasSkipSubmitted("main"), true);
-assert.equal(guardModule.markSkipSubmitted("variant"), true);
+let sent = 0;
+const recordSkip = createSkipRecorder(async (taskId) => {
+  sent += 1;
+  if (sent === 1) throw new Error("failed");
+  return taskId;
+});
+const first = recordSkip("main");
+assert.equal(recordSkip("main"), first);
+await assert.rejects(first);
+assert.equal(await recordSkip("main"), "main");
+assert.equal(await recordSkip("main"), "main");
+assert.equal(await recordSkip("variant"), "variant");
+assert.equal(sent, 3);
 
 console.log("JS-VIEW-CONTEXT-CHECK PASSED");

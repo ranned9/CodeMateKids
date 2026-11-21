@@ -1,7 +1,4 @@
-"""配置分级读取：默认安全配置 < 本地开发配置 < 受保护凭据。
-
-模型凭据只从环境变量读取，进入进程内存后不写入任何文件、响应或日志。
-"""
+"""读取启动配置。网页模型配置由运行时存储单独管理。"""
 
 from __future__ import annotations
 
@@ -32,6 +29,9 @@ class Settings:
     course_dir: Path
     log_dir: Path
     app_version: str = APP_VERSION
+    tutor_agent_enabled: bool = False
+    tutor_chat_enabled: bool = True
+    learning_db_path: Path = BASE_DIR / "data" / "learning.sqlite3"
 
 
 def _int_env(env: Mapping[str, str], name: str, default: int, minimum: int = 1) -> int:
@@ -76,6 +76,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     if not log_dir.is_absolute():
         log_dir = BASE_DIR / log_dir
 
+    learning_db_path = BASE_DIR / (source.get("CMK_LEARNING_DB_PATH") or "data/learning.sqlite3")
+
     return Settings(
         host=host,
         port=port,
@@ -90,6 +92,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         model_key=model_key,
         course_dir=course_dir,
         log_dir=log_dir,
+        tutor_agent_enabled=(source.get("CMK_TUTOR_AGENT_ENABLED") or "").strip() == "1",
+        tutor_chat_enabled=(source.get("CMK_TUTOR_CHAT_ENABLED") or "1").strip() != "0",
+        learning_db_path=learning_db_path,
     )
 
 

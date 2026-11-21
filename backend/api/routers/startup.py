@@ -14,4 +14,9 @@ def startup_check(request: Request, refresh: bool = False) -> dict:
     from backend.service.startup import check_startup
 
     settings = request.app.state.settings
-    return ok(check_startup(settings, refresh=refresh))
+    report = check_startup(settings, refresh=refresh)
+    return ok({
+        **report,
+        "tutorMode": request.app.state.model_config.snapshot().effectiveMode,
+        "tutorChatEnabled": settings.tutor_chat_enabled,
+    })

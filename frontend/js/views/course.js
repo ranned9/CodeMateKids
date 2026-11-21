@@ -34,7 +34,7 @@ export function buildCurrentTask(task, state, callbacks = {}) {
   heading.textContent = task.title;
   const tag = document.createElement("span");
   tag.className = "task-tag";
-  tag.textContent = TYPE_LABEL[task.type] || "任务";
+  tag.textContent = task.teaching?.goalKind === "square" ? "迁移挑战" : TYPE_LABEL[task.type] || "任务";
   heading.appendChild(tag);
   card.appendChild(heading);
 
@@ -91,6 +91,14 @@ function renderTaskList(container, state, callbacks) {
   const heading = document.createElement("h4");
   heading.textContent = "其他任务";
   container.appendChild(heading);
+  if (callbacks.onSkip && state.tasks.get(state.activeTaskId)?.enterable) {
+    const skip = document.createElement("button");
+    skip.type = "button";
+    skip.className = "ghost-button";
+    skip.textContent = "先跳过这题";
+    skip.addEventListener("click", callbacks.onSkip);
+    container.appendChild(skip);
+  }
   let count = 0;
   for (const taskId of state.tasks.keys()) {
     if (taskId === state.activeTaskId) {
@@ -104,7 +112,7 @@ function renderTaskList(container, state, callbacks) {
     title.textContent = task.title;
     const tag = document.createElement("span");
     tag.className = "task-tag";
-    tag.textContent = TYPE_LABEL[task.type] || "任务";
+    tag.textContent = task.teaching?.goalKind === "square" ? "迁移挑战" : TYPE_LABEL[task.type] || "任务";
     title.appendChild(tag);
     card.appendChild(title);
     appendParagraph(card, task.objective, "muted");

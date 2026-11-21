@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Request
 
-from backend.api.dto import FeedbackRequest, PredictionRequest
+from backend.api.dto import FeedbackRequest, PredictionRequest, StudentCreateRequest
+from backend.api.security import require_local, require_local_same_origin
+from backend.api.student_context import classroom_session
+from backend.domain.program import ProgramError
 from backend.infra.errors import ApiError, ok
-from backend.service.course import find_task
+from backend.service.course import find_task, load_course
+from backend.service.program_digest import digest_program
+from backend.service.teaching import learning_key, validate_snapshot
 
 router = APIRouter(tags=["session"])
 
@@ -14,27 +21,38 @@ router = APIRouter(tags=["session"])
 @router.post("/session/prediction")
 def submit_prediction(body: PredictionRequest, request: Request) -> dict:
     settings = request.app.state.settings
-    store = request.app.state.session
-    find_task(settings, body.taskId)
-    attempts = store.add_prediction(body.taskId, body.value)
-    return ok(
-        {
-            "taskId": body.taskId,
-            "value": body.value,
-            "runUnlocked": True,
-            "attempts": attempts,
-        }
-    )
+    _, store = classroom_session(request)
+    bundle = load_course(settings)
+    find_task(settings, body.taskId, bundle)
+    context = body.learningContext.model_dump() if body.learningContext else {}
+    key = learning_key(context, bundle, body.taskId)
+    attempts = store.add_prediction(body.taskId, body.value, bundle.content_version)
+    data = {"taskId": body.taskId, "value": body.value, "runUnlocked": True, "attempts": attempts}
+    if key:
+        program = context.get("program")
+        digest = None
+        if program is not None:
+            try:
+                validate_snapshot(program, bundle, body.taskId)
+            except ProgramError:
+                pass
+            else:
+                digest = digest_program(program)
+        prediction_id = f"pred-{uuid.uuid4().hex}"
+        store.teaching.put_prediction(key, prediction_id, body.value, digest)
+        data["predictionId"] = prediction_id
+    return ok(data)
 
 
 @router.post("/session/feedback")
 def submit_feedback(body: FeedbackRequest, request: Request) -> dict:
     settings = request.app.state.settings
-    store = request.app.state.session
-    find_task(settings, body.taskId)
+    _, store = classroom_session(request)
+    bundle = load_course(settings)
+    find_task(settings, body.taskId, bundle)
     skipped = False
     if body.kind == "skip":
-        store.mark_skipped(body.taskId)
+        store.mark_skipped(body.taskId, bundle.content_version)
         skipped = True
         observed = body.note or "孩子选择先跳过这个任务"
         store.add_evidence(
@@ -74,12 +92,39 @@ def submit_feedback(body: FeedbackRequest, request: Request) -> dict:
 @router.get("/session/summary")
 def get_summary(request: Request) -> dict:
     settings = request.app.state.settings
-    store = request.app.state.session
+    _, store = classroom_session(request)
     return ok(store.summary(settings))
 
 
 @router.get("/session/state")
 def get_state(request: Request) -> dict:
-    store = request.app.state.session
+    _, store = classroom_session(request)
     counts = store.snapshot_counts()
     return ok({"counts": counts, "skipped": sorted(store.skipped)})
+
+
+@router.get("/students")
+def list_students(request: Request) -> dict:
+    require_local(request)
+    return ok({"students": request.app.state.learning.list_students()})
+
+
+@router.post("/students")
+def create_student(body: StudentCreateRequest, request: Request) -> dict:
+    require_local_same_origin(request)
+    return ok(request.app.state.learning.create_student(body.displayName))
+
+
+@router.get("/students/{student_id}/progress")
+def student_progress(student_id: str, request: Request, courseId: str | None = None) -> dict:
+    require_local(request)
+    memory = request.app.state.learning
+    bundle = load_course(request.app.state.settings)
+    course_id = courseId or bundle.course["courseId"]
+    if not memory.has_student(student_id):
+        raise ApiError("STUDENT_NOT_FOUND")
+    observations = memory.observations(student_id, course_id)
+    return ok({
+        "studentId": student_id, "courseId": course_id, "observations": observations,
+        "updatedAt": observations[0]["observedAt"] if observations else None,
+    })

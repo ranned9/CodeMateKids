@@ -190,24 +190,43 @@ def validate_course(course: dict[str, Any]) -> None:
     tasks = course["tasks"]
     if not isinstance(tasks, list):
         raise _content_error("tasks", "不是数组")
-    task_ids: set[str] = set()
-    types: set[str] = set()
+    by_id: dict[str, dict[str, Any]] = {}
+    known_points = {point.get("id") for point in course.get("knowledgePoints", []) if isinstance(point, dict)}
     for task in tasks:
         _validate_task(task)
         task_id = str(task["taskId"])
-        if task_id in task_ids:
+        points = task.get("teaching", {}).get("knowledgePointIds", [])
+        if (not isinstance(points, list) or any(not isinstance(point, str) or point not in known_points for point in points)
+                or len(set(points)) != len(points)):
+            raise _content_error("teaching", f"task={task_id} 知识点关联无效")
+        if task_id in by_id:
             raise _content_error("task_id", f"重复 {task_id}")
-        task_ids.add(task_id)
-        types.add(str(task["type"]))
-    if types != set(TASK_TYPES):
-        raise _content_error("task_types", str(sorted(types)))
+        by_id[task_id] = task
+    mains = [task for task in tasks if task["type"] == "main"]
+    variants = [task for task in tasks if task["type"] == "variant"]
+    if len(mains) != 1 or not variants:
+        raise _content_error("task_types", "需要一个主任务和至少一个变式任务")
 
-    main_task = next(item for item in tasks if item["type"] == "main")
-    variant_task = next(item for item in tasks if item["type"] == "variant")
-    if main_task.get("variantTaskId") != variant_task["taskId"]:
+    main_task = mains[0]
+    variant_ids = {task["taskId"] for task in variants}
+    if main_task.get("variantTaskId") not in variant_ids:
         raise _content_error("variant_link", "主任务未指向变式任务")
-    if variant_task.get("variantOf") != main_task["taskId"]:
+    if any(task.get("variantOf") != main_task["taskId"] for task in variants):
         raise _content_error("variant_link", "变式任务未指向主任务")
+    if sum(task.get("teaching", {}).get("goalKind") == "square" for task in variants) > 1:
+        raise _content_error("teaching", "课程只支持一道正方形迁移题")
+    for task_id in by_id:
+        visited = set()
+        current = task_id
+        while current:
+            if not isinstance(current, str) or current not in by_id or current in visited:
+                raise _content_error("next_task", f"task={task_id}")
+            visited.add(current)
+            current = next_task_id(by_id[current])
+
+
+def next_task_id(task: dict[str, Any]) -> str | None:
+    return task.get("nextTaskId") or (task.get("variantTaskId") if task["type"] == "main" else None)
 
 
 def _validate_task(task: dict[str, Any]) -> None:
@@ -246,6 +265,28 @@ def _validate_task(task: dict[str, Any]) -> None:
         check = criterion.get("check") or {}
         if not isinstance(check, dict) or "object" not in check or "field" not in check:
             raise _content_error("successCriteria", f"task={task['taskId']}")
+    teaching = task.get("teaching", {})
+    goal = teaching.get("goalKind", "distance") if isinstance(teaching, dict) else None
+    if goal not in ("distance", "square"):
+        raise _content_error("teaching", f"task={task['taskId']}")
+    suggested = teaching.get("suggestedStepsPerMove")
+    if suggested is not None and (type(suggested) is not int or not 1 <= suggested <= 100):
+        raise _content_error("teaching", f"task={task['taskId']}")
+    if goal == "distance" and suggested is not None:
+        step_checks = [item["check"] for item in criteria if item["check"].get("object") == "stage"
+                       and item["check"].get("field") == "steps"]
+        if len(step_checks) != 1 or step_checks[0].get("op") != "eq":
+            raise _content_error("teaching", f"task={task['taskId']} 缺少唯一的步数目标")
+        target = step_checks[0].get("value")
+        if type(target) is not int or target <= 0 or target % suggested:
+            raise _content_error("teaching", f"task={task['taskId']} 步长无法整除目标")
+    expected_program_criteria = ["square_single_repeat"] if goal == "square" else []
+    if task.get("programCriteria", []) != expected_program_criteria or (goal == "square" and task["type"] != "variant"):
+        raise _content_error("programCriteria", f"task={task['taskId']}")
+    if "nextTaskId" in task and task["nextTaskId"] is not None and (
+        not isinstance(task["nextTaskId"], str) or not task["nextTaskId"]
+    ):
+        raise _content_error("next_task", f"task={task['taskId']}")
     errors = task["commonErrors"]
     if not isinstance(errors, list) or len(errors) < 2:
         raise _content_error("commonErrors", f"task={task['taskId']}")
@@ -292,6 +333,9 @@ def course_payload(settings: Settings, course_id: str, bundle: CourseBundle | No
                 "expectedBehavior": task["expectedBehavior"],
                 "variantOf": task.get("variantOf"),
                 "variantTaskId": task.get("variantTaskId"),
+                "nextTaskId": next_task_id(task),
+                "teaching": task.get("teaching"),
+                "programCriteria": task.get("programCriteria", []),
             }
         )
     course = bundle.course

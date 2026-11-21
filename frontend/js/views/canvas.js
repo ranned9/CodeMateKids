@@ -91,8 +91,6 @@ export class EditorView {
     this.height = 460;
     this.fieldEditor = null;
     this.numberControls = new NumberControls(this);
-    window.__cmkState = this.state;
-    window.__cmkEditor = this;
     this.dnd = new DndController(this, { toolbox: options.toolbox });
     this.dnd.bind();
     attachKeyboard(this, this.handlers);
@@ -143,8 +141,10 @@ export class EditorView {
 
   measure() {
     const rect = this.canvas.getBoundingClientRect();
-    this.width = Math.max(360, Math.round(rect.width || 720));
-    this.height = Math.max(320, Math.round(rect.height || 460));
+    const cssScale = Number.parseFloat(window.getComputedStyle?.(this.canvas)?.getPropertyValue("--block-scale"));
+    this.blockScale = cssScale > 0 ? cssScale : 1;
+    this.width = Math.max(360, Math.round(rect.width || 720)) / this.blockScale;
+    this.height = Math.max(320, Math.round(rect.height || 460)) / this.blockScale;
   }
 
   refresh() {
@@ -156,14 +156,14 @@ export class EditorView {
       scrollX: this.scrollX ?? 0,
       scrollY: this.scrollY,
     });
-    const validation = validateTree(this.state.root);
+    const validation = validateTree(this.state.root, definitions);
     this.state.invalidBlockIds = validation.invalidIds;
     this.render();
     if (this.empty) {
       this.empty.hidden = workspaceStacks(this.state.root).length > 0;
     }
     if (this.mirror) {
-      syncMirror(this.mirror, this.layout.nodes || [], this.state);
+      syncMirror(this.mirror, this.layout.nodes || [], this.state, (blockId, options) => this.selectBlock(blockId, options));
     }
     if (this.code) {
       this.code.textContent = previewCode(this.state.root, definitions);
@@ -174,14 +174,14 @@ export class EditorView {
     this.measure();
     const editable = !this.state.readonly && ["editing", "result", "error"].includes(this.state.phase);
     const numberControls = this.numberControls.sync(editable, Boolean(this.dnd.session?.moved));
-    const dpr = window.devicePixelRatio || 1;
-    if (this.canvas.width !== Math.round(this.width * dpr)) {
-      this.canvas.width = Math.round(this.width * dpr);
+    const pixelsPerUnit = (window.devicePixelRatio || 1) * this.blockScale;
+    if (this.canvas.width !== Math.round(this.width * pixelsPerUnit)) {
+      this.canvas.width = Math.round(this.width * pixelsPerUnit);
     }
-    if (this.canvas.height !== Math.round(this.height * dpr)) {
-      this.canvas.height = Math.round(this.height * dpr);
+    if (this.canvas.height !== Math.round(this.height * pixelsPerUnit)) {
+      this.canvas.height = Math.round(this.height * pixelsPerUnit);
     }
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.setTransform(pixelsPerUnit, 0, 0, pixelsPerUnit, 0, 0);
     drawScene(this.ctx, this.layout, {
       width: this.width,
       height: this.height,
@@ -472,7 +472,6 @@ export class EditorView {
     this.history.record("delete", before, cloneTree(result.root));
     this.refresh();
     this.onChange("program");
-    this.handlers.onDeleted?.(this.history.latestTransactionId());
     return true;
   }
 
@@ -600,8 +599,7 @@ export class EditorView {
     }
     const currentValue = block.inputs[fieldName];
     if (field.acceptsNumberBlock && currentValue?.kind === "value.number") {
-      this.commitFieldValue(currentValue.blockId, "value", rawValue);
-      return;
+      return this.commitFieldValue(currentValue.blockId, "value", rawValue);
     }
     let value = rawValue;
     if (field.acceptsNumberBlock || field.valueType === "number" || field.valueType === "integer") {
@@ -634,6 +632,20 @@ export class EditorView {
     this.history.record("edit_input", before, cloneTree(this.state.root));
     this.refresh();
     this.onChange("program");
+    return true;
+  }
+
+  applyTeachingEdit({ blockId, field, before, after }) {
+    if (this.state.readonly || !["editing", "result", "error"].includes(this.state.phase) ||
+        this.fieldEditor || this.dnd.session || !Number.isInteger(before) || !Number.isInteger(after) || before === after) {
+      return false;
+    }
+    const block = findBlock(this.state.root, blockId);
+    const eligibleField = { "control.repeat": "times", "motion.move": "steps", "motion.turn": "degrees" }[block?.kind];
+    if (!eligibleField || field !== eligibleField || numberInputValue(block.inputs?.[field]) !== before) {
+      return false;
+    }
+    return this.commitFieldValue(blockId, field, after) === true;
   }
 
   cancelFieldEdit() {

@@ -1,6 +1,6 @@
-/** 结果区：首屏两句话（预测对照 + 目标达成）、旧结果标记与下一步引导。 */
+/** 结果区：简短结论、可展开的运行证据与下一步引导。 */
 import { buildResultSummary, deriveTargetSteps } from "../ux/resultSummary.js";
-import { actorPercent, buildStageTrack, stageTicks } from "../ux/stageTrack.js";
+import { buildStageTrack, STAGE_INSET } from "../ux/stageTrack.js";
 import { LOOP_OBSERVATION } from "../ux/loopEvidence.js";
 import { appendDiv, appendList, appendParagraph, clearNode } from "../util/dom.js";
 
@@ -52,26 +52,33 @@ export function renderResult(container, state, task, data, callbacks = {}) {
   } else if (data.status === "completed" && success) {
     status.textContent = "这次做到了！";
   } else if (data.status === "completed") {
-    status.textContent = "运行完成啦，看看和目标的差距。";
+    status.textContent = "还没达到目标。";
   } else {
     status.textContent = "程序没有完整跑完。";
   }
   container.appendChild(status);
 
-  const firstScreen = document.createElement("div");
-  firstScreen.className = "result-block";
-  appendDiv(firstScreen, summary.compareLine, "result-line");
-  appendDiv(firstScreen, summary.goalLine, "result-line");
+  const facts = [];
+  if (summary.consistent !== "unknown") facts.push(`猜 ${predictionValue} 次`);
+  if (summary.moves != null) facts.push(`动了 ${summary.moves} 次`);
+  if (summary.actualSteps != null) {
+    const goal = summary.targetSteps != null && summary.actualSteps !== summary.targetSteps
+      ? `（目标 ${summary.targetSteps} 步）` : "";
+    facts.push(`走了 ${summary.actualSteps} 步${goal}`);
+  }
+  if (facts.length) appendDiv(container, facts.join("，"), "result-line");
+
+  const observations = document.createElement("div");
+  observations.className = "result-block";
+  appendDiv(observations, summary.compareLine);
+  appendDiv(observations, summary.goalLine);
   if (data.loopBlockId) {
-    appendDiv(firstScreen, LOOP_OBSERVATION, "result-line");
+    appendDiv(observations, LOOP_OBSERVATION);
   } else if (data.status === "completed" && data.success && ["main", "variant"].includes(task?.taskId)) {
-    appendDiv(firstScreen, "再看看前进积木是不是放在重复里。", "result-line");
+    appendDiv(observations, "再看看前进积木是不是放在重复里。");
   }
   const stage = data.objects?.find((item) => item.id === "stage");
-  if (stage?.said) {
-    appendDiv(firstScreen, `小海龟说：“${stage.said}”`, "result-line");
-  }
-  container.appendChild(firstScreen);
+  callbacks.details?.appendChild(observations);
 
   const outputBlock = document.createElement("div");
   outputBlock.className = "result-block";
@@ -107,16 +114,18 @@ export function renderResult(container, state, task, data, callbacks = {}) {
   updatePredictionCompare(summary, predictionValue);
 
   if (data.error) {
+    const message = data.error.messageForChild || "这里出了点问题。";
+    appendDiv(container, message, "result-line result-error-summary");
     const errorBox = document.createElement("div");
     errorBox.className = "error-box result-block";
     const title = document.createElement("strong");
-    title.textContent = data.error.messageForChild || "这里出了点问题。";
+    title.textContent = message;
     const next = document.createElement("div");
     next.className = "next-step";
     next.textContent = NEXT_STEP[data.error.code] || "可以再运行一次。";
     errorBox.appendChild(title);
     errorBox.appendChild(next);
-    container.appendChild(errorBox);
+    callbacks.details?.appendChild(errorBox);
   } else if (data.failures && data.failures.length > 0) {
     const failBox = document.createElement("div");
     failBox.className = "result-block";
@@ -124,12 +133,14 @@ export function renderResult(container, state, task, data, callbacks = {}) {
     failHeading.textContent = "和目标比一比";
     failBox.appendChild(failHeading);
     appendList(failBox, data.failures);
-    container.appendChild(failBox);
+    callbacks.details?.appendChild(failBox);
   }
 
   const actions = document.createElement("div");
   actions.className = "result-next-actions";
-  function addAction(label, handler) {
+  const detailActions = document.createElement("div");
+  detailActions.className = "result-next-actions";
+  function addAction(label, handler, parent = actions) {
     if (!handler) {
       return;
     }
@@ -138,21 +149,31 @@ export function renderResult(container, state, task, data, callbacks = {}) {
     button.className = "ghost-button";
     button.textContent = label;
     button.addEventListener("click", () => handler());
-    actions.appendChild(button);
+    parent.appendChild(button);
   }
-  addAction("回到积木", callbacks.onBackToBlocks);
+  addAction("回到积木", callbacks.onBackToBlocks, detailActions);
   const target = data.error?.blockId || data.loopBlockId;
   if (target && ownership === "current" && callbacks.onLocate) {
-    addAction(data.error ? "定位积木" : "看看重复里的前进", () => callbacks.onLocate(target));
+    addAction(data.error ? "定位积木" : "看看重复里的前进", () => callbacks.onLocate(target), detailActions);
   }
   if (summary.nextAction === "hint") {
-    addAction("给我一点提示", callbacks.onHint);
+    addAction(callbacks.hintLabel || "给我一点提示", callbacks.onHint);
+  } else if (summary.nextAction === "nextTask") {
+    if (callbacks.onNextTask) {
+      addAction(callbacks.nextTaskLabel || "去下一题", callbacks.onNextTask);
+    } else {
+      addAction("看小结", callbacks.onSummary);
+    }
   } else if (summary.nextAction === "variant") {
     addAction("试试变式", callbacks.onVariant);
   } else if (summary.nextAction === "summary") {
     addAction("看小结", callbacks.onSummary);
   }
-  container.appendChild(actions);
+  if (ownership === "current" && data.success && data.learning?.pattern === "prediction_mismatch") {
+    addAction("看看猜想和实际有什么不同", callbacks.onHint, detailActions);
+  }
+  if (actions.childElementCount) container.appendChild(actions);
+  if (detailActions.childElementCount) (callbacks.details || container).appendChild(detailActions);
   return summary;
 }
 
@@ -185,46 +206,121 @@ function updatePredictionCompare(summary, prediction) {
   }
 }
 
-export function updateObjectView(elements, objects, task = null) {
+export function updateObjectView(elements, objects, task = null, learning = null, replayFrame = null) {
   const stage = (objects || []).find((item) => item.id === "stage");
-  const targetSteps = deriveTargetSteps(task);
-  const track = buildStageTrack({ targetSteps, actualSteps: stage?.steps });
-  if (elements.target) {
-    elements.target.hidden = !track.hasTarget;
-    elements.target.style.left = "82%";
+  const square = task?.teaching?.goalKind === "square";
+  if (elements.track) elements.track.hidden = square;
+  if (elements.path) elements.path.hidden = !square;
+  if (square && elements.path) {
+    const actions = learning?.replay?.actions || [];
+    const visible = replayFrame ? actions.slice(0, replayFrame.index) : actions;
+    const endpoint = replayFrame ? replayFrame.action : visible.at(-1) || stage;
+    drawStagePath(elements.path, actions, visible, endpoint);
+    const status = replayFrame ? "正在分步查看。" : stage
+      ? `动了 ${stage.moves} 次，累计走了 ${stage.steps} 步。当前位置（${stage.x}，${stage.y}），朝向 ${stage.heading}°。`
+      : "海龟在起点。";
+    const traceStatus = !replayFrame && stage && !actions.length && stage.moves > 0
+      ? "这次没有可核对的完整路线。" : !replayFrame && learning?.replay?.hasMore ? "舞台显示路线的前一部分。" : "";
+    elements.meta.textContent = `${status}${traceStatus}`;
+    return;
   }
-  if (elements.ticks && elements.ticks.dataset.target !== String(targetSteps)) {
-    elements.ticks.dataset.target = String(targetSteps);
+  const targetSteps = deriveTargetSteps(task);
+  const display = replayFrame ? {
+    steps: replayFrame.action?.totalSteps ?? 0,
+    moves: replayFrame.action?.moves ?? 0,
+    heading: replayFrame.action?.heading ?? 0,
+  } : stage;
+  const track = buildStageTrack({
+    targetSteps,
+    actualSteps: stage?.steps,
+    displaySteps: display?.steps,
+    viewportWidth: elements.track?.clientWidth,
+  });
+  if (elements.lane) {
+    elements.lane.style.width = `${track.width}px`;
+  }
+  if (elements.target) {
+    elements.target.hidden = track.targetPosition == null;
+    if (track.targetPosition != null) elements.target.style.left = `${track.targetPosition}px`;
+  }
+  const tickKey = `${targetSteps}:${stage?.steps}:${track.ticks.at(-1).value}`;
+  if (elements.ticks && elements.ticks.dataset.track !== tickKey) {
+    elements.ticks.dataset.track = tickKey;
     clearNode(elements.ticks);
-    for (const tick of stageTicks(targetSteps)) {
+    for (const tick of track.ticks) {
       const label = document.createElement("span");
       label.className = "stage-tick";
-      label.style.left = `${tick.percent}%`;
+      label.style.left = `${tick.position}px`;
       label.textContent = String(tick.value);
       elements.ticks.appendChild(label);
     }
   }
-  if (!stage) {
+  if (!display) {
     resetObjectView(elements);
-    if (track.hasTarget) {
-      elements.meta.textContent = `${track.label}。角色在起点。`;
+    if (track.targetPosition != null) {
+      elements.meta.textContent = `目标 ${targetSteps} 步。角色在起点。`;
     }
     return;
   }
-  const percent = track.ratio == null
-    ? Math.min(82, 8 + (Number(stage.steps) || 0) * 8)
-    : actorPercent(track);
-  elements.actor.style.left = `${percent}%`;
-  elements.actor.style.transform = stage.heading === 180 ? "scaleX(-1)" : "none";
+  elements.actor.style.left = `${track.actorPosition}px`;
+  elements.actor.style.transform = display.heading === 180 ? "scaleX(-1)" : "none";
+  if (elements.track) elements.track.scrollLeft = track.scrollLeft;
   const overflow = track.overflowLabel ? `（${track.overflowLabel}）` : "";
-  const moves = Number.isFinite(stage.moves) ? `动了 ${stage.moves} 次，` : "";
-  elements.meta.textContent = `${moves}累计走了 ${stage.steps} 步${overflow}，朝向 ${stage.heading}°${
-    stage.said ? `，说：“${stage.said}”` : ""
+  const moves = Number.isFinite(display.moves) ? `动了 ${display.moves} 次，` : "";
+  elements.meta.textContent = `${moves}累计走了 ${display.steps} 步${overflow}，朝向 ${display.heading}°${
+    display.said ? `，说：“${display.said}”` : ""
   }。`;
 }
 
+function drawStagePath(canvas, actions, visible, endpoint) {
+  const context = canvas.getContext?.("2d");
+  if (!context) return;
+  const { width, height } = canvas;
+  const points = [...actions, ...(endpoint ? [endpoint] : [])];
+  const extent = Math.max(2, ...points.map(({ x, y }) => Math.max(Math.abs(x), Math.abs(y))));
+  const unit = (Math.min(width, height) / 2 - 16) / extent;
+  const origin = { x: width / 2, y: height / 2 };
+  const point = ({ x, y }) => [origin.x + x * unit, origin.y - y * unit];
+  context.clearRect(0, 0, width, height);
+  context.strokeStyle = "#bae0d8";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(12, origin.y);
+  context.lineTo(width - 12, origin.y);
+  context.moveTo(origin.x, 12);
+  context.lineTo(origin.x, height - 12);
+  context.stroke();
+  context.strokeStyle = "#08796d";
+  context.lineWidth = 3;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.beginPath();
+  context.moveTo(origin.x, origin.y);
+  for (const position of visible) context.lineTo(...point(position));
+  context.stroke();
+  context.fillStyle = "#08796d";
+  context.beginPath();
+  context.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
+  context.fill();
+  const [x, y] = point(endpoint || { x: 0, y: 0 });
+  context.save();
+  context.translate(x, y);
+  context.rotate(-(endpoint?.heading || 0) * Math.PI / 180);
+  context.fillStyle = "#17554d";
+  context.beginPath();
+  context.moveTo(11, 0);
+  context.lineTo(-4, -6);
+  context.lineTo(-4, 6);
+  context.closePath();
+  context.fill();
+  context.restore();
+}
+
 export function resetObjectView(elements) {
-  elements.meta.textContent = "角色还没有动过。";
-  elements.actor.style.left = "8%";
-  elements.actor.style.transform = "none";
+  if (elements.meta) elements.meta.textContent = "角色还没有动过。";
+  if (elements.actor) {
+    elements.actor.style.left = `${STAGE_INSET}px`;
+    elements.actor.style.transform = "none";
+  }
+  if (elements.track) elements.track.scrollLeft = 0;
 }

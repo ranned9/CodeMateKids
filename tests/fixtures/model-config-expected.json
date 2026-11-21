@@ -1,0 +1,19 @@
+{
+  "SOURCES": ["default", "environment", "web"],
+  "EFFECTIVE_MODES": ["mock", "model"],
+  "FAILURE_CATEGORIES": [
+    "invalid",
+    "forbidden",
+    "conflict",
+    "expired",
+    "auth",
+    "endpoint",
+    "rate_limit",
+    "timeout",
+    "refusal",
+    "invalid_response",
+    "storage"
+  ],
+  "ALLOWED_ACTIONS": ["ask_question", "point_to_block", "show_execution", "hint", "offer_variant"],
+  "TARGET_REFS": ["loopBlock", "moveBlock", "outsideMoveBlock", "verifiedReplay", "nextTask"]
+}

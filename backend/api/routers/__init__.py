@@ -10,6 +10,7 @@ def build_router() -> APIRouter:
         course,
         diagnostics,
         matrix,
+        model_config,
         projects,
         runs,
         session,
@@ -22,6 +23,7 @@ def build_router() -> APIRouter:
     router.include_router(course.router)
     router.include_router(runs.router)
     router.include_router(tutor.router)
+    router.include_router(model_config.router)
     router.include_router(projects.router)
     router.include_router(session.router)
     router.include_router(matrix.router)

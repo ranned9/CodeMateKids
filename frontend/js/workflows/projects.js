@@ -3,6 +3,7 @@ import { API } from "../api.js";
 import { captureContext, isCurrentContext } from "../core/viewContext.js";
 import { buildProgram, cloneTree, programWorkspace } from "../editor/model.js";
 import { notify } from "../state.js";
+import { prepareWorkspaceChange } from "./workspace-change.js";
 
 function downloadProject(payload) {
   const blob = new Blob([payload.fileText], { type: "application/json;charset=utf-8" });
@@ -19,6 +20,7 @@ function downloadProject(payload) {
 export function createProjectWorkflow({ state, elements, editorReady, applyProject, leaveRunContext, toast }) {
   let saveRequestSequence = 0;
   let latestAppliedSave = 0;
+  let openRequestSequence = 0;
 
   async function askUnsavedChoice() {
     if (!state.dirty) {
@@ -108,23 +110,22 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
       return;
     }
     const ctx = captureContext(state);
+    const request = ++openRequestSequence;
+    const isLatest = () => request === openRequestSequence;
     try {
       const text = await file.text();
+      if (!isLatest() || !isCurrentContext(state, ctx)) return;
       const data = await API.loadProject(text);
       const taskId = data.program?.courseRef?.taskId || "";
       const task = state.tasks.get(taskId);
       const validTask = Boolean(task && task.enterable && data.runnable);
-      if (!isCurrentContext(state, ctx) || !(await confirmLeaveDirty()) || !isCurrentContext(state, ctx)) {
-        return;
-      }
-      const revision = state.programRevision;
-      const leaving = leaveRunContext("open-project");
-      const nextContext = captureContext(state);
-      if ((await leaving)?.stopped === false) {
-        toast("上一次运行还没有停下来，可以稍后再打开作品。", true);
-        return;
-      }
-      if (!isCurrentContext(state, nextContext) || revision !== state.programRevision) {
+      const outcome = await prepareWorkspaceChange({
+        state, context: ctx, reason: "open-project", confirm: confirmLeaveDirty, leaveRunContext, isLatest,
+      });
+      if (outcome !== "ready") {
+        if (outcome === "run-pending") {
+          toast("上一次运行还没有停下来，可以稍后再打开作品。", true);
+        }
         return;
       }
       applyProject({
@@ -143,9 +144,11 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
         toast("作品打开啦。");
       }
     } catch (error) {
-      toast(error.messageForChild || "这个文件不是我们的项目文件。", true);
+      if (isLatest() && isCurrentContext(state, ctx)) {
+        toast(error.messageForChild || "这个文件不是我们的项目文件。", true);
+      }
     } finally {
-      elements.file.value = "";
+      if (isLatest()) elements.file.value = "";
     }
   }
 

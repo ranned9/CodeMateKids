@@ -57,17 +57,27 @@ async function unwrap(response) {
   });
 }
 
+let classroomStudent = null;
+
+export function setClassroomStudent(studentId) {
+  classroomStudent = studentId;
+}
+
 /** @param {string} path */
-export async function getJson(path) {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
+export async function getJson(path, studentId = null) {
+  const headers = { Accept: "application/json" };
+  if (studentId) headers["X-CMK-Student-Id"] = studentId;
+  const response = await fetch(path, { headers });
   return unwrap(response);
 }
 
 /** @param {string} path @param {any} body */
-export async function postJson(path, body) {
+export async function postJson(path, body, studentId = null) {
+  const headers = { "Content-Type": "application/json", Accept: "application/json" };
+  if (studentId) headers["X-CMK-Student-Id"] = studentId;
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   return unwrap(response);
@@ -78,15 +88,24 @@ export const API = {
   startupRefresh: () => getJson("/api/v1/startup/check?refresh=true"),
   schema: () => getJson("/api/v1/blocks/schema"),
   course: (courseId = "demo-loop") => getJson(`/api/v1/course/${courseId}`),
-  prediction: (taskId, value) => postJson("/api/v1/session/prediction", { taskId, value }),
+  prediction: (taskId, value, learningContext) =>
+    postJson("/api/v1/session/prediction", { taskId, value, learningContext }, classroomStudent),
   feedback: (taskId, kind, note = "") =>
-    postJson("/api/v1/session/feedback", { taskId, kind, note }),
-  summary: () => getJson("/api/v1/session/summary"),
-  submitRun: (payload) => postJson("/api/v1/runs", payload),
-  getRun: (requestId) => getJson(`/api/v1/runs/${requestId}`),
-  cancelRun: (requestId, cancelToken) =>
-    postJson(`/api/v1/runs/${requestId}/cancel`, { cancelToken }),
-  hint: (payload) => postJson("/api/v1/tutor/hints", payload),
+    postJson("/api/v1/session/feedback", { taskId, kind, note }, classroomStudent),
+  summary: () => getJson("/api/v1/session/summary", classroomStudent),
+  submitRun: (payload, studentId = classroomStudent) => postJson("/api/v1/runs", payload, studentId),
+  getRun: (requestId, studentId = classroomStudent) => getJson(`/api/v1/runs/${requestId}`, studentId),
+  cancelRun: (requestId, cancelToken, studentId = classroomStudent) =>
+    postJson(`/api/v1/runs/${requestId}/cancel`, { cancelToken }, studentId),
+  hint: (payload) => postJson("/api/v1/tutor/hints", payload, classroomStudent),
+  chat: (payload, studentId = classroomStudent) => postJson("/api/v1/tutor/chat", payload, studentId),
+  students: () => getJson("/api/v1/students"),
+  createStudent: (displayName) => postJson("/api/v1/students", { displayName }),
+  studentProgress: (studentId) => getJson(`/api/v1/students/${encodeURIComponent(studentId)}/progress`),
+  modelConfig: () => getJson("/api/v1/tutor/model-config"),
+  testModel: (payload) => postJson("/api/v1/tutor/model-config/test", payload),
+  activateModel: (payload) => postJson("/api/v1/tutor/model-config/activate", payload),
+  disableModel: (payload) => postJson("/api/v1/tutor/model-config/disable", payload),
   saveProject: (program, courseRef) =>
     postJson("/api/v1/projects/save", { program, courseRef }),
   loadProject: (fileText) => postJson("/api/v1/projects/load", { fileText }),

@@ -20,6 +20,7 @@ from backend.infra.config import load_settings  # noqa: E402
 def settings(tmp_path):
     env = {
         "CMK_LOG_DIR": str(tmp_path / "logs"),
+        "CMK_LEARNING_DB_PATH": str(tmp_path / "data" / "learning.sqlite3"),
         "CMK_COURSE_DIR": str(PROJECT_ROOT / "content" / "demo-loop"),
         "CMK_TUTOR_MODE": "mock",
     }

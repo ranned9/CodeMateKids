@@ -111,6 +111,7 @@ globalThis.window = {
 Object.assign(state, {
   startup: { status: "ready" },
   tasks: new Map([["main", { taskId: "main", enterable: true }]]),
+  blocksByKind: new Map([["event.start", { runnable: true }]]),
   root: { blockId: "b-start", kind: "event.start", inputs: {}, body: [], next: null },
   prediction: new Map([["main", 0]]),
 });
@@ -121,6 +122,7 @@ const runner = createRunner({
   elements,
   state,
   editor: { state, render() {} },
+  api: window.__cmkApi,
   toast: (message) => toasts.push(message),
   refresh() {},
 });
@@ -192,5 +194,20 @@ await cancelBeforeAccept;
 assert.equal(cancellations.at(-1).requestId, requests[3].requestId);
 await stream.onerror();
 assert.equal(runner.isBusy(), false);
+
+nextSubmitResponse = null;
+await runner.run();
+const lastRequestId = runner.getSession().requestId;
+finished = false;
+const failedLeave = await runner.leaveRunContext({ reason: "switch" });
+assert.equal(failedLeave.stopped, false);
+assert.equal(runner.getSession().disposed, true);
+assert.equal(elements.stop.disabled, false);
+finished = true;
+await runner.stop();
+assert.equal(runner.isBusy(), false);
+assert.equal(state.runRecovery, null);
+assert.equal(state.phase, "editing");
+assert.equal(cancellations.at(-1).requestId, lastRequestId);
 
 console.log("JS-RUN-SESSION-CHECK PASSED");

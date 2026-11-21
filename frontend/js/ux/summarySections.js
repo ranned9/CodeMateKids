@@ -2,7 +2,7 @@
 
 export function buildSummarySections(data = {}, facts = {}) {
   const completed = (data.completedTasks || []).join("、");
-  const observation = facts.observation || data.observation || "";
+  const observation = data.observation || facts.observation || "";
   const challenge = data.nextStep || "下次换一种积木顺序，再试一次。";
   const sections = [
     {
@@ -13,6 +13,13 @@ export function buildSummarySections(data = {}, facts = {}) {
   ];
   if (observation) {
     sections.push({ key: "observation", title: "一个具体观察", text: observation });
+  }
+  if (data.transfer) {
+    const state = data.transfer;
+    const text = state.status === "completed"
+      ? { none: "这一次，你在没有用提示的情况下画出了正方形。", assisted: "这一次，你在小老师的提示下画出了正方形。" }[state.support] || "这次画出了正方形，提示使用情况没有完整记录。"
+      : { skipped: "这次先跳过了画正方形，随时可以回来。", in_progress: "你已经开始试着画正方形。" }[state.status] || "还没试过画正方形，可以从四条边开始想。";
+    sections.push({ key: "transfer", title: "画正方形", text });
   }
   sections.push({ key: "challenge", title: "一个小挑战", text: challenge });
   return sections;

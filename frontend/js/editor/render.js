@@ -39,7 +39,7 @@ export function drawToolboxBlock(canvas, definition) {
   const height = node.rect.h + padding * 2;
   canvas.width = Math.ceil(width * ratio);
   canvas.height = Math.ceil(height * ratio);
-  canvas.style.width = `${width}px`;
+  canvas.style.width = `calc(${width}px * var(--block-scale, 1))`;
   canvas.style.aspectRatio = `${width} / ${height}`;
   ctx.setTransform(ratio, 0, 0, ratio, padding * ratio, padding * ratio);
   paintBlock(ctx, node, layout, view);

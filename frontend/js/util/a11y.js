@@ -1,6 +1,6 @@
 /** 语义镜像 DOM：按布局节点顺序呈现积木，颜色不是唯一状态提示。 */
 
-export function syncMirror(mirrorEl, layoutNodes, state) {
+export function syncMirror(mirrorEl, layoutNodes, state, selectBlock) {
   if (!mirrorEl) {
     return;
   }
@@ -27,16 +27,8 @@ export function syncMirror(mirrorEl, layoutNodes, state) {
       `第 ${index + 1} 个积木，${name}，层级 ${node.depth + 1}${statuses.length ? "，" + statuses.join("，") : ""}`,
     );
     button.textContent = `${name}${statuses.length ? "（" + statuses.join("，") + "）" : ""}`;
-    button.addEventListener("focus", () => {
-      if (window.__cmkEditor) {
-        window.__cmkEditor.selectBlock(node.blockId, { skipNotify: true });
-      }
-    });
-    button.addEventListener("click", () => {
-      if (window.__cmkEditor) {
-        window.__cmkEditor.selectBlock(node.blockId);
-      }
-    });
+    button.addEventListener("focus", () => selectBlock(node.blockId, { skipNotify: true }));
+    button.addEventListener("click", () => selectBlock(node.blockId));
     list.appendChild(button);
   });
 

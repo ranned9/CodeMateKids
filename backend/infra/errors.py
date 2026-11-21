@@ -103,6 +103,10 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
     "TASK_NOT_RUNNABLE": ErrorSpec(
         "task_blocked", 409, "这个任务现在打不开，可以先试试另一个任务。", True
     ),
+    "TUTOR_TURN_BUSY": ErrorSpec("tutor_busy", 409, "小老师正在回答，请稍等一下。", True),
+    "TUTOR_TURN_CONFLICT": ErrorSpec("tutor_turn_conflict", 409, "请按现在的积木重新提问。", True),
+    "STUDENT_NOT_FOUND": ErrorSpec("not_found", 404, "找不到这个学生，请重新选择档案。", True),
+    "LEARNING_STORE_UNAVAILABLE": ErrorSpec("storage", 503, "暂时无法保存学习进度，可以继续练习。", True),
 }
 
 CHILD_SAFE_FORBIDDEN = (

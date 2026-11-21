@@ -20,7 +20,8 @@ def test_course_shape_and_single_theme(client) -> None:
     assert data["course"]["courseId"] == "demo-loop"
     assert data["course"]["reviewStatus"] == "reviewed"
     assert 1 <= len(data["course"]["learningObjectives"]) <= 3
-    assert [task["taskId"] for task in data["tasks"]] == ["main", "variant"]
+    assert [task["taskId"] for task in data["tasks"]] == ["main", "variant", "transfer-square"]
+    assert data["tasks"][1]["nextTaskId"] == "transfer-square"
     assert all(task["enterable"] for task in data["tasks"])
     assert {theme["status"] for theme in data["otherThemes"]} == {"coming_soon"}
 

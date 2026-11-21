@@ -183,9 +183,15 @@ def _start_frame_reader(stream: Any) -> FrameReader:
     return reader
 
 
-def _handshake(reader: FrameReader, process: subprocess.Popen) -> None:
-    deadline = time.perf_counter() + HANDSHAKE_TIMEOUT_S
+def _handshake(
+    reader: FrameReader,
+    process: subprocess.Popen,
+    deadline: float,
+    cancel_event: threading.Event,
+) -> None:
     while True:
+        if cancel_event.is_set():
+            raise SupervisorError("handshake_cancelled")
         remaining = deadline - time.perf_counter()
         if remaining <= 0:
             raise SupervisorError("handshake_timeout")
@@ -229,6 +235,9 @@ def run_program(
     handshake_reason = ""
 
     try:
+        if cancel_event.is_set():
+            handshake_reason = "handshake_cancelled"
+            raise SupervisorError(handshake_reason)
         creationflags = 0
         if sys.platform == "win32":
             creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -251,7 +260,7 @@ def run_program(
         stderr_digest.start()
 
         try:
-            _handshake(reader, process)
+            _handshake(reader, process, started + HANDSHAKE_TIMEOUT_S, cancel_event)
         except SupervisorError as exc:
             handshake_reason = exc.reason
             raise
@@ -424,12 +433,14 @@ def run_program(
         return result
 
     except SupervisorError:
+        cancelled = handshake_reason == "handshake_cancelled"
+        status = "cancelled" if cancelled else "crashed"
         if log_event is not None:
             summary = stderr_digest.summary() if stderr_digest is not None else ""
             log_event(
                 "run_diagnostics",
                 {
-                    "status": "crashed",
+                    "status": status,
                     "handshakeReason": handshake_reason,
                     "stderrSummary": summary,
                 },
@@ -437,10 +448,10 @@ def run_program(
         return {
             "protocolVersion": PROTOCOL_VERSION,
             "requestId": request_id,
-            "status": "crashed",
+            "status": status,
             "stdout": "".join(collected_stdout),
             "stderr": "",
-            "error": error_object("RUNNER_CRASHED"),
+            "error": error_object("RUN_CANCELLED" if cancelled else "RUNNER_CRASHED"),
             "events": collected_events,
             "durationMs": int((time.perf_counter() - started) * 1000),
             "truncated": truncated,

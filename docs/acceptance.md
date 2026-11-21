@@ -333,3 +333,174 @@ ED-AC-01～ED-AC-20 的真实浏览器操作尚未执行，状态统一为“未
 - 10 个 Node 回归脚本与 44 个前端模块语法检查通过。覆盖运行前取消、重复预测门禁、结果归属、循环事件去重和撤销事务等。
 - Python 全量为 212 通过、1 失败。已知的 `test_worker_never_outputs` 未通过 2.8 秒时限，实测约 3.05 秒；终态和错误码断言通过。最终课程和回复调整后的 19 个针对性测试通过。
 - 浏览器原生 125% 和 150% 页面缩放、真实儿童试用及现场回滚演练仍待执行。回滚参考为本轮之前的应用与课程组合，仓库已提交基线为 `a465df6`。复验应包含启动、打开旧作品、预测、运行与停止。
+
+## 17. 维护整理回归
+
+| 层次 | 本轮结果 |
+| --- | --- |
+| Python | 220 项通过，含既有 Worker 无输出、半行输出握手测试，以及新增启动前取消用例。握手预算从启动前开始计时 |
+| 前端 | 10 项 Node 检查和 47 个模块的语法检查通过。覆盖终态未确认时保留作品、再次停止后恢复、切换请求失效、跳过反馈失败重试 |
+| 浏览器 | Windows 上以 Chrome 160.0.8157.0 无头模式、1024×768 视口复验预测、运行、求助、取消任务切换和保存后重新打开 |
+
+运行入口和排错见[运行说明](run.md)。工作区替换与扩展入口见[架构](architecture.md)。
+
+## 18. AI 教学增强阶段 0（历史记录）
+
+> 本轮只执行 `tasks-ai-teaching-0.5.0.md` 1.9 节白名单：不依赖 Q-AI-01～13 与 design 2.9 的未定取值。**阶段 1 条件性任务、阶段 3、阶段 4 均未执行**。
+
+### 16.1 门禁状态
+
+- G-0：**未放行**。Q-AI-01～13 全部未确认，见 `decisions-ai-teaching-0.5.0.md`。
+- G-0b：**未放行**。design 2.9 的 7 项未确认；迁移题/双维舞台/模型模式均未启用。
+- G-1：**放行**。AT-CP-01～09 按 spec 8.2 处置，0.4.0 决策文件未修改。
+- 阶段 0 实际落盘 `contentVersion`：仍为 `1.2.1`，**未落盘 1.3.0**。
+
+### 16.2 已交付（代码事实）
+
+- 枚举单一真源 `backend/tutor/enums.py`（教学 10 + 非教学 4）与前端镜像 `frontend/js/ux/enums.js`；`content_validation.ERROR_PATTERNS` 改为引用真源。
+- DTO 可选字段：`LearningScope/LearningContext` 加入预测、运行、辅导三个请求；响应模型增加 `predictionId/learning/transfer/nextTaskId/observation`；旧请求体字段集合不变。
+- Schema：`course.v1.json` 补 `otherThemes/nextTaskId/teaching/programCriteria`；`tutor_protocol.v1.json` 增可选 `teachingDecision/factIdsUsed`，主版本仍为 v1。
+- 程序摘要 `backend/service/program_digest.py`：键排序、剔除 `metadata` 与 `stacks[*].x/y`、数组保序、SHA-256。
+- 结构判定 `backend/tutor/square.py`：单一循环、循环内 move+turn、90/270、数字积木、循环外无害动作；**未接 `success` 门控**。
+- 事实/错因 `backend/tutor/diagnosis.py`：9 类 pattern 优先级；T04 按 `prediction_mismatch` 建议值实现并标注待定稿。
+- 回放 `backend/tutor/replay.py`：事件配对、轮次识别、末态核对、上限与降级；**默认 12 动作与“前两轮”未启用**。
+- 会话索引 `backend/session/teaching_store.py`：按 scope 隔离、有界 256、提示去重上限 8。
+- 编排 `backend/service/teaching.py`：learning 六键（outcome/pattern/facts/predictionMatch/traceQuality/replay），异常 fail-open 返回 `None`。
+- 辅导决策优先 `backend/tutor/engine.py`（`decide_with_facts`）与 `backend/tutor/mock.py`（最终 action/level 取决策）。
+- 前端 `ux/learningContext.js`、`ux/replayPlayer.js`；`views/artifact.js` 在安装点时生成新的 `workspaceId`；`core/viewContext.js` 新增五项归属快照判定。
+
+### 16.3 自动化结论
+
+| 检查 | 结果 |
+|---|---|
+| `python -m pytest tests -q` | **276 passed**（含新增 56 项） |
+| `node tests/js_ai_teaching_check.mjs` | 通过（枚举镜像、workspaceId、seenHints 上限、回放状态机） |
+| 其余 Node 检查（10 个） | 全部通过 |
+| R1 真实运行 | 正方形 28 事件、4 轮、末态 `(0,0,0,8)`、moves=4；简单重复 12 事件、2 轮 |
+| 回放降级矩阵 | 空/乱序/配对失败/超限/坐标不符/`truncated` 无因果/裁剪 hasMore 均通过 |
+
+### 16.4 未执行 / 未验证（不得计为通过）
+
+- `learning` 附加尚未接入 `service/run.py` 与 SSE `result`；`learningContext` 尚未由前端请求携带。
+- 辅导 `learning` 附加、回放入口与分步控件、二维舞台、第三任务、推荐链、`transfer` 聚合均未实现。
+- Q-AI-05 的默认 12 动作与“前两轮”、Q-AI-06 的“已呈现”时点、Q-AI-07 的范围参数、Q-AI-08 的 `edit_trace` 均未启用。
+- 浏览器项、真实模型端点、真实教学成效、性能指标全部**未验证**。
+- T01/T02/T03/T04 的端到端断言只在纯函数层通过，未通过 HTTP/SSE 全链路。
+
+## 19. 循环教学工作台，课程内容 1.3.0
+
+| 检查 | 结果 |
+| --- | --- |
+| Python 3.12 全量回归 | 281 项通过 |
+| Node 前端回归 | 11 个脚本通过 |
+| HTTP/SSE 教学流程 | 区分重复次数、动作位置、前进步长；复验后用新程序判断；旧提示定位与回放受当前运行约束 |
+| 正方形迁移 | 手工展开路线需要继续改成循环；循环解法完成后生成二维轨迹数据，并区分有提示和无提示的运行 |
+| 可选模型 | 模拟端点验证采用本地教学动作、拒绝无依据的数值以及回到本地回复 |
+
+真实模型和新界面的浏览器手工检查留待演示机验证。自动化用例和现场操作见[开发文档](CodeMateKids_AI教学增强开发文档.md)及[演示脚本](demo-script.md)。
+
+## 20. 网页模型接入骨架（历史记录）
+
+> 本轮只执行 `tasks-web-model-agent-0.6.0.md` 1.10 节白名单。G-0、G-0b、G-P **均未放行**；P2 未开工。
+
+### 20.1 骨架交付范围
+
+- `backend/tutor/model_config.py`：`source/effectiveMode/adapter/失败类别/allowedActions/targetRef` 单一真源；进程内状态机（`revision`、单候选 600s、最新测试胜出、原子启用/停用、幂等停用、密钥不泄漏）。
+- `frontend/js/ux/modelConfigState.js` + `tests/fixtures/model-config-expected.json`：前端镜像与表单纯逻辑。
+- `backend/api/dto.py`：`ModelConfigTestRequest/Activate/Disable`，以及 `LearningContext.turnId/replyToTurnId` 可选字段（仅声明）。
+- `backend/infra/logging.py`：白名单新增 `modelSource/modelRevision/modelCategory`。
+- `backend/api/security.py`：回环 + `Host` + `Origin` + JSON 类型校验；`diagnostics` 复用共享回环常量。
+- `backend/infra/net_policy.py`：七步地址校验、DNS 复验、禁代理、3xx 立即失败、`chat_url` 拼接。
+- `backend/tutor/chat_adapter.py`：Chat Completions 6 键构造、单跳发送、解析与失败分类。
+- `backend/api/routers/model_config.py`：四个配置入口、`no-store`、零新增错误码（`category` 承载细分）、`cfg-<12hex>` 仅入日志。
+- `tests/test_model_config.py`、`tests/test_net_policy.py`、`tests/test_model_legacy_payload.py`、`tests/test_model_dto_compat.py`、`tests/test_model_logging.py`、`tests/js_model_config_check.mjs`。
+
+### 20.2 骨架自动化结论
+
+| 检查 | 结果 |
+|---|---|
+| 0.6.0 契约/安全/既有锚点定向回归 | **101 passed** |
+| 全部 `tests/js_*.mjs` | 全部通过 |
+| 旧网关载荷 | 顶层恰好 9 键；`tutor_protocol.v1.json` 未改 |
+| 错误码 | `ERROR_SPECS` 无 `MODEL_*` 键，键集合零新增 |
+| 配置接口 | GET/POST 同源拒绝、`no-store`、四入口流程通过（假探针） |
+| 地址策略 | 13 类拒绝样例、公网 HTTPS 通过、DNS 复验 2 次、代理禁用 |
+
+### 20.3 骨架阶段剩余工作
+
+- `factspeak` 占位符展开、`guard` 增量、`candidate` 统一管道、`tutor.py` 网页分流、`/startup/check` 投影（S2 剩余）未执行。
+- 前端 `#model-config` 区域、表单版本化、来源标识、停用失效（S3）未执行；P1 交付点未勾选。
+- S4 多轮、S5 动作选择、S6 开关与观测、P2 全部未执行。
+- 真实后端、真实浏览器、真实模型端点全部**未验证**；不得宣称“模型已接入课堂”。
+
+## 21. 网页模型配置与多轮教学
+
+| 检查 | 结果 |
+| --- | --- |
+| Python 全量回归 | 330 项通过 |
+| Node 前端回归 | 12 个脚本通过 |
+| 出站地址和重定向 | 新增探针通过。连接到已验证的 IP，使用原域名验证证书，遇到重定向时停止 |
+| 网页配置和课堂联调 | 模拟传输验证连接测试、启用、课堂引用实际步数和动作次数、无效回复和限流回退、配置更新后丢弃旧模型结果 |
+| 多轮教学 | 模拟传输验证同一运行下，根据两种孩子回答分别给回放或定位，重试复用同一轮，过期追问返回冲突 |
+
+真实模型端点和浏览器手工操作按[运行说明](run.md)及[浏览器检查表](manual-checklist.md)复验。
+## 22. AI 老师对话与学习记忆 0.7.0（记录骨架）
+
+> **本轮状态**：仅建立记录骨架，**全部条目为“未验证”**。G-TM-0 判定为“未放行”，只执行 `tasks-ai-teacher-memory-0.7.0.md` 1.11 节白名单。
+> **禁止**：预填“通过”、以“代码已写”或“A 类通过”替代 B/C/D 结论。
+
+### 22.1 A 类（可自动化）
+
+| 编号 | 结论 | 证据 | 执行人 | 日期 |
+|---|---|---|---|---|
+| TM-AC-02/03/08/10～12/14/15/17～19/21/22/24～83（纯逻辑/契约/夹具/假传输） | 未验证 | — | — | — |
+| TM-RG-01～15（回归） | 未验证 | — | — | — |
+
+### 22.2 B 类（真实后端）
+
+| 编号 | 结论 | 证据 | 执行人 | 日期 |
+|---|---|---|---|---|
+| TM-AC-23/27/68/81/82/84 后端链路（真实 uvicorn + 真实 Worker） | 未验证 | — | — | — |
+
+### 22.3 C 类（真实浏览器）
+
+| 编号 | 结论 | 证据 | 执行人 | 日期 |
+|---|---|---|---|---|
+| TM-AC-01～07/09～14/16/20/33/41（Chrome/Edge，1280×720 与 1024×768，含键盘与输入法） | 未验证 | — | — | — |
+
+### 22.4 D 类（真实模型端点）
+
+| 编号 | 结论 | 证据 | 执行人 | 日期 |
+|---|---|---|---|---|
+| TM-AC-47/48/57 真实分支、来源 8.2 第 2/5/6 步模型表现 | 未验证（本期不宣称） | — | — | — |
+
+### 22.5 标注规则
+
+1. D 类未执行、真实模型未连通：一律写“**未验证**”。
+2. 性能未实测：写“**未实测**”，不计入通过。
+3. 9 项门禁后置项（原文出站、`stop_guidance`、`knowledgePointIds/1.4.0`、长期持久化、4 个错误码、2 个配置、运行归属、常驻输入框、模型观察建议）：写“**门禁后置（未验证）**”。
+4. 上游未放行依赖（`Q-AI-05/06/09`、`WQ-07/09/10/12/14`）：写“**条件性·上游未放行**”。
+
+### 22.6 不可宣称（强制，七条）
+
+1. 真实模型端点的连通性、时延、配额与表达质量：**未验证**。
+2. “学习记忆提升理解力/学习效果”：**未验证**，不得由观察条目数量推断。
+3. 观察条目的教育解释效力：**未验证**，只承诺“记录可追溯、可按学生隔离”。
+4. 浏览器实测（输入法、连续消息、低高度、缩放、焦点）：**未验证**，需按 `docs/manual-checklist.md` 执行后另行记录。
+5. 性能指标（4.1 全部）：**未实测**，不得计入通过。
+6. 多设备/多浏览器标签页同步：**未设计**，不得宣称可用。
+7. 学生档案的安全性（防篡改/防伪造）：**不承诺**，首版信任本机同源操作者。
+
+## 23. AI 老师对话与学习记忆首版验收
+
+本轮按首版开发文档执行，使用合成学生档案、示例积木程序和本机验收数据库。 [首版开发文档](CodeMateKids_AI老师对话与学习记忆开发文档.md)
+
+| 验收项 | 实测结果 |
+| --- | --- |
+| 后端和前端回归 | 359 项 Python 测试和 12 个 Node 检查脚本通过。首版课堂专项覆盖澄清、重试、切换程序、实际 Worker、存储故障和迁移题。 |
+| 浏览器交互 | 在 1280×720 的本机工作台验证自然提问、澄清、改积木后继续回答、创建档案，以及运行后逐步回放。运行结果较长时输入框和发送键仍可使用。 |
+| 学生隔离与重启 | 使用两个档案和同名工作区。预测门禁和运行详情按学生归属，重启应用后 SQLite 仍提供各自的学习记录。同一句「这个要怎么算」分别触发核对步数和自主预测。 |
+| 正方形迁移题 | 展开的前进与转弯通过路线判定，但仍需调整循环结构。改用一个循环后，运行和老师回复均确认达标。 |
+| 已配置的模型 | 用合成问题验证积木解释和澄清两类模型回复。也观察到个别结构不合格的模型回复，接口按预期返回本地教学回复。 |
+
+课堂回归使用模拟模型传输和实际 Runner。浏览器手工验收使用本地教学回复，模型连通性用独立的合成请求验证。 [课堂测试](../tests/test_classroom_chat.py) · [前端教学检查](../tests/js_ai_teaching_check.mjs)

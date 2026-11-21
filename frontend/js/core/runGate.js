@@ -7,7 +7,7 @@ function block(reason, reasonCode, blockId = null) {
   return { allowed: false, reason, reasonCode, blockId };
 }
 
-export function evaluateRunGate({ state, taskId, root, validate = null }) {
+export function evaluateRunGate({ state, taskId = state.activeTaskId, root = state.root }) {
   if (!state.startup) {
     return block("运行环境还在检查。", "STARTUP_PENDING");
   }
@@ -57,7 +57,7 @@ export function evaluateRunGate({ state, taskId, root, validate = null }) {
   if (!runnableRoots(root).length) {
     return block("把要运行的积木接在「当开始」下面。", "NO_RUNNABLE_ROOT");
   }
-  const validation = validate ? validate() : validateTree(root);
+  const validation = validateTree(root, state.blocksByKind);
   if (!validation.ok) {
     const first = validation.issues[0];
     return block(first?.message || "先把缺的内容补上。", "INVALID_PROGRAM", first?.blockId || null);

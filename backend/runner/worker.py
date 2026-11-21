@@ -24,10 +24,9 @@ from backend.domain.program import ProgramError, validate_program  # noqa: E402
 from backend.infra.errors import error_object  # noqa: E402
 from backend.runner.compiler import TARGET_FILENAME, CompilationError, compile_program  # noqa: E402
 from backend.runner.policy import check_module  # noqa: E402
-from backend.runner.protocol import PROTOCOL_VERSION, validate_run_frame  # noqa: E402
+from backend.runner.protocol import MAX_EVENTS, PROTOCOL_VERSION, validate_run_frame  # noqa: E402
 from backend.runner.runtime_api import OutputBuffer, Stage, make_globals  # noqa: E402
 
-MAX_EVENTS = 2000
 DEFAULT_LIMITS = {
     "wallTimeMs": 3000,
     "memoryMb": 128,

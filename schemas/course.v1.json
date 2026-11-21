@@ -48,6 +48,19 @@
       "minItems": 2,
       "items": {"$ref": "#/$defs/task"}
     },
+    "otherThemes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["themeId", "title", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "themeId": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "status": {"enum": ["coming_soon", "available"]}
+        }
+      }
+    },
     "reviewStatus": {"enum": ["draft", "reviewed"]},
     "contentVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
   },
@@ -158,6 +171,21 @@
         "demoSolution": {"type": "object"},
         "variantOf": {"type": ["string", "null"]},
         "variantTaskId": {"type": ["string", "null"]},
+        "nextTaskId": {"type": ["string", "null"]},
+        "teaching": {
+          "type": "object",
+          "required": ["goalKind"],
+          "additionalProperties": false,
+          "properties": {
+            "goalKind": {"enum": ["distance", "square"]},
+            "suggestedStepsPerMove": {"type": "integer", "minimum": 1, "maximum": 100},
+            "knowledgePointIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          }
+        },
+        "programCriteria": {
+          "type": "array",
+          "items": {"enum": ["square_single_repeat"]}
+        },
         "ageNote": {"type": "string"},
         "reviewStatus": {"enum": ["draft", "reviewed"]}
       }

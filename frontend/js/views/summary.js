@@ -1,10 +1,11 @@
 /** 学习总结：三段（完成/观察/挑战）+ 本次会话明细，不出现分数、排名或等级。 */
+import { API } from "../api.js";
 import { buildSummarySections } from "../ux/summarySections.js";
 import { appendParagraph, clearNode } from "../util/dom.js";
 
 let requestSequence = 0;
 
-export async function showSummary({ panel, content, state, callbacks }) {
+export async function showSummary({ panel, content, state, callbacks, api = API }) {
   if (!panel || !content) {
     return;
   }
@@ -16,7 +17,7 @@ export async function showSummary({ panel, content, state, callbacks }) {
   appendParagraph(content, "正在整理这次的学习记录…", "muted");
   let data;
   try {
-    data = await window.__cmkApi.summary();
+    data = await api.summary();
   } catch (error) {
     if (!panel.open || request !== requestSequence) {
       return;
@@ -69,9 +70,11 @@ export async function showSummary({ panel, content, state, callbacks }) {
   content.appendChild(note);
 
   const variantButton = document.getElementById("summary-variant");
+  const variantId = [...state.tasks.values()].find((task) => task.type === "main")?.variantTaskId || "variant";
+  const nextTask = state.tasks.get(data.nextTaskId || variantId);
   if (variantButton) {
-    variantButton.disabled = !data.variantAvailable;
-    variantButton.textContent = data.variantAvailable ? "再练一次变式" : "这节课的加练还没准备好";
+    variantButton.disabled = !nextTask?.enterable;
+    variantButton.textContent = nextTask?.enterable ? `去练习 · ${nextTask.title}` : "这节课的加练还没准备好";
   }
   const skippedButton = document.getElementById("summary-skipped");
   if (skippedButton) {
@@ -81,7 +84,7 @@ export async function showSummary({ panel, content, state, callbacks }) {
     };
   }
   if (variantButton) {
-    variantButton.onclick = () => callbacks.onVariant?.();
+    variantButton.onclick = () => callbacks.onVariant?.(nextTask?.taskId);
   }
   const finishButton = document.getElementById("summary-finish");
   if (finishButton) {

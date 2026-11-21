@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from backend.infra.errors import child_message_is_safe
 from backend.tutor.engine import TUTOR_ACTIONS, is_diagnostic_text
+from backend.tutor.model import numeric_observations
 
 MAX_MESSAGE_CHARS = 120
 PERSONAL_SOLICIT_TOKENS = ("密码", "住址", "电话", "联系方式", "学校", "班级", "身份证")
@@ -15,6 +17,10 @@ FULL_SOLUTION_TOKENS = ("for ", "range(", "stage.", "print(", "=")
 def validate_response(
     response: dict[str, Any],
     allow_full_solution: bool = False,
+    *,
+    decision: Any = None,
+    context: dict[str, Any] | None = None,
+    enhanced_local: bool = False,
 ) -> tuple[bool, str]:
     for key in ("action", "message", "nextStep", "uncertainty", "answerLevel", "mode"):
         if key not in response:
@@ -29,21 +35,37 @@ def validate_response(
     if not isinstance(response.get("nextStep"), str) or not response["nextStep"].strip():
         return False, "next_step_missing"
     answer_level = response.get("answerLevel")
-    if answer_level not in (0, 1, 2, 3):
+    if type(answer_level) is not int or answer_level not in (0, 1, 2, 3):
         return False, "answer_level_invalid"
     if response.get("mode") not in ("mock", "model"):
         return False, "mode_invalid"
     if not isinstance(response.get("evidenceUsed", []), list):
         return False, "evidence_used_invalid"
 
-    if not child_message_is_safe(message):
-        return False, "unsafe_reference"
-    if is_diagnostic_text(message):
-        return False, "diagnostic_claim"
-    if any(token in message for token in PERSONAL_SOLICIT_TOKENS):
-        return False, "personal_info_request"
-    if answer_level >= 3 and not allow_full_solution:
+    for field in ("message", "nextStep", "uncertainty"):
+        value = response[field]
+        if not isinstance(value, str) or len(value) > MAX_MESSAGE_CHARS or not child_message_is_safe(value):
+            return False, "unsafe_reference"
+        if is_diagnostic_text(value):
+            return False, "diagnostic_claim"
+        if any(token in value for token in PERSONAL_SOLICIT_TOKENS):
+            return False, "personal_info_request"
+        if not allow_full_solution and any(token in value for token in FULL_SOLUTION_TOKENS):
+            return False, "full_solution_too_early"
+    if answer_level >= 3 and not (allow_full_solution or enhanced_local or decision):
         return False, "full_solution_too_early"
-    if not allow_full_solution and any(token in message for token in FULL_SOLUTION_TOKENS):
-        return False, "full_solution_too_early"
+    if decision is not None:
+        if response["action"] != decision.action or answer_level != decision.level or response["mode"] != "model":
+            return False, "decision_mismatch"
+        observations = numeric_observations(context or {})
+        used = response.get("factIdsUsed", [])
+        if not isinstance(used, list) or any(not isinstance(item, str) or item not in observations for item in used):
+            return False, "unsupported_fact"
+        if any(item != "run_result" for item in response.get("evidenceUsed", [])):
+            return False, "unsupported_evidence"
+        text = " ".join(response[field] for field in ("message", "nextStep", "uncertainty"))
+        if any(int(digits) not in observations.values() for digits in re.findall(r"\d+", text)):
+            return False, "unsupported_number"
+        if re.search(r"(?:设为|填入|填上|改成|答案是)\s*[\d零一二两三四五六七八九十]", text):
+            return False, "prescribed_answer"
     return True, "ok"

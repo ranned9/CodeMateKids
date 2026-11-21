@@ -1,45 +1,45 @@
 /** 应用入口：装配编辑器、派生层、视图与工作流。 */
-import { API } from "./api.js";
+import { API, setClassroomStudent } from "./api.js";
 import { evaluateRunGate } from "./core/runGate.js";
-import { captureContext, isCurrentContext } from "./core/viewContext.js";
-import { cloneTree, programWorkspace, validateTree } from "./editor/model.js";
+import { cloneTree, programWorkspace } from "./editor/model.js";
 import { History } from "./editor/undo.js";
 import { notify, setPhase, state, subscribe } from "./state.js";
 import { classifyResult } from "./ux/runContext.js";
 import { deriveClassroomState, stateHintTone } from "./ux/classroomState.js";
-import { createFocusScope } from "./ux/focusScope.js";
-import { createLayoutMode } from "./ux/layoutMode.js";
 import { locateTarget } from "./ux/locate.js";
-import { createPanelController } from "./ux/panels.js";
 import { applyPrimaryAction } from "./ux/primaryAction.js";
 import { deriveSaveState, saveStateClass } from "./ux/saveState.js";
 import { renderSystemInfo } from "./ux/systemInfo.js";
+import { bindWorkbenchPanels } from "./ux/workbenchPanels.js";
 import { applyArtifact } from "./views/artifact.js";
 import { EditorView } from "./views/canvas.js";
-import { renderCourse, renderCoursePanels, renderPrediction } from "./views/course.js";
+import { renderCourse, renderCoursePanels } from "./views/course.js";
 import { createRunner } from "./views/runner.js";
 import { renderResult, updateObjectView } from "./views/result.js";
-import { updateModeBadge } from "./views/startup.js";
+import { bindModelConfig } from "./views/modelConfig.js";
+import { bindStudents } from "./views/students.js";
 import { showSummary } from "./views/summary.js";
 import { renderToolbox } from "./views/toolbox.js";
 import { createTutor } from "./views/tutor.js";
+import { createTutorChat } from "./views/tutorChat.js";
 import { createCourseWorkflow } from "./workflows/course.js";
+import { createPredictionWorkflow } from "./workflows/predictions.js";
 import { createProjectWorkflow } from "./workflows/projects.js";
+import { prepareWorkspaceChange } from "./workflows/workspace-change.js";
 
 window.__cmkApi = API;
 window.__cmkState = state;
 
 const dom = {};
-const ui = { panels: null, layoutMode: null, focusScope: null };
+let panels = null;
 
 let editor = null;
 let history = null;
 let runner = null;
 let tutor = null;
 let projects = null;
+let predictions = null;
 let toastTimer = null;
-let deleteUndo = null;
-let deleteUndoTimer = null;
 let switchingTask = false;
 
 function collectDom() {
@@ -58,6 +58,14 @@ function collectDom() {
     "system-info-trigger",
     "system-info-body",
     "save-state",
+    "student-controls",
+    "student-select",
+    "student-dialog",
+    "student-form",
+    "student-name",
+    "student-create",
+    "student-save",
+    "student-cancel",
     "course-panel",
     "course-content",
     "prediction-box",
@@ -69,8 +77,6 @@ function collectDom() {
     "task-list-panel",
     "learning-objectives-panel",
     "other-themes-panel",
-    "undo-delete-banner",
-    "undo-delete-action",
     "undo-button",
     "redo-button",
     "toolbox",
@@ -88,6 +94,9 @@ function collectDom() {
     "run-hint",
     "run-locate",
     "stage-ticks",
+    "stage-track",
+    "stage-lane",
+    "stage-path",
     "stage-target",
     "stage-actor",
     "object-meta",
@@ -104,6 +113,13 @@ function collectDom() {
     "compare-match",
     "live-output",
     "tutor-panel",
+    "tutor-chat",
+    "tutor-chat-log",
+    "tutor-chat-form",
+    "tutor-chat-input",
+    "tutor-chat-selection",
+    "tutor-chat-send",
+    "tutor-legacy",
     "tutor-message",
     "tutor-detail",
     "tutor-input",
@@ -133,27 +149,6 @@ function collectDom() {
   dom.tutorButtons = Array.from(document.querySelectorAll(".tutor-actions button[data-choice]"));
 }
 
-function collectPanelMaps() {
-  const panelMap = {};
-  const triggerMap = {};
-  if (typeof document.querySelectorAll !== "function") {
-    return { panelMap, triggerMap };
-  }
-  for (const element of document.querySelectorAll("[data-panel]")) {
-    const id = element.getAttribute?.("data-panel");
-    if (id) {
-      panelMap[id] = element;
-    }
-  }
-  for (const element of document.querySelectorAll("[data-panel-trigger]")) {
-    const id = element.getAttribute?.("data-panel-trigger");
-    if (id) {
-      (triggerMap[id] ||= []).push(element);
-    }
-  }
-  return { panelMap, triggerMap };
-}
-
 function toast(message, bad = false) {
   dom.toast.textContent = message;
   dom.toast.hidden = false;
@@ -172,15 +167,6 @@ function predictionElements() {
     feedback: dom["prediction-feedback"],
     runHint: dom["run-hint"],
   };
-}
-
-function currentGate() {
-  return evaluateRunGate({
-    state,
-    taskId: state.activeTaskId,
-    root: state.root,
-    validate: () => validateTree(state.root),
-  });
 }
 
 function updateSaveState() {
@@ -206,7 +192,7 @@ function updateClassroom() {
     task,
     readonly: state.readonly,
     phase: state.phase,
-    gate: currentGate(),
+    gate: evaluateRunGate({ state }),
     predictionValue: state.prediction.get(state.activeTaskId) ?? null,
     runRecovery: state.runRecovery,
     lastRunOwnership: state.lastResultOwnership,
@@ -229,14 +215,34 @@ function updateClassroom() {
 }
 
 function resultCallbacks() {
+  const next = nextTask(state.tasks.get(state.activeTaskId));
   return {
     details: dom["result-detail-content"],
     onBackToBlocks: () => returnToWorkspace(),
     onLocate: (blockId) => returnToWorkspace(blockId),
     onHint: () => askForHint(),
-    onVariant: state.variantAvailable ? () => switchTask("variant") : null,
+    hintLabel: tutor?.focus ? "问小老师" : undefined,
+    onVariant: next ? () => switchTask(next.taskId) : null,
+    onNextTask: next ? () => switchTask(next.taskId) : null,
+    nextTaskLabel: next ? `下一题 · ${next.title}` : "",
     onSummary: openSummary,
   };
+}
+
+function nextTask(task) {
+  const candidate = state.tasks.get(task?.nextTaskId || task?.variantTaskId);
+  return candidate?.enterable ? candidate : null;
+}
+
+function showReplayFrame(frame) {
+  if (!state.lastResult) return;
+  const task = state.tasks.get(state.activeTaskId);
+  const showFrame = state.lastResultOwnership === "current" ? frame : null;
+  updateObjectView(stageElements(), state.lastResult.objects, task, state.lastResult.learning, showFrame);
+  if (!runner?.isBusy()) {
+    editor.state.runningBlockId = showFrame?.action?.blockId || null;
+    editor.render();
+  }
 }
 
 function returnToWorkspace(blockId = state.selectedBlockId) {
@@ -244,7 +250,11 @@ function returnToWorkspace(blockId = state.selectedBlockId) {
 }
 
 function askForHint() {
-  setSlot("tutor");
+  panels.showResultSlot("tutor");
+  if (tutor?.focus) {
+    tutor.focus();
+    return;
+  }
   dom["tutor-message"].focus();
   return tutor?.ask("hint");
 }
@@ -275,12 +285,11 @@ function renderAll(reason = "all") {
       otherThemes: dom["other-themes-panel"],
     },
     state,
-    { onSelectTask: (taskId) => switchTask(taskId) },
+    { onSelectTask: (taskId) => switchTask(taskId), onSkip: tutor?.focus ? skipTask : null },
   );
-  renderPrediction(state, predictionElements(), {});
+  predictions.render();
   renderEditorToolbox();
   updateHistoryControls();
-  updateModeBadge(state.mode);
   tutor?.updateContext();
   renderSystemInfo(dom["system-info-body"], state.startup);
   updateSaveState();
@@ -301,9 +310,8 @@ function renderEditorToolbox() {
 
 function installArtifact(descriptor) {
   applyArtifact({ state, descriptor, dom, editor, renderAll, runner });
-  clearDeleteUndo();
   dom["result-details"].open = false;
-  ui.panels?.close("tutorEvidence", { silentFocus: true });
+  panels.close("tutorEvidence");
   updateObjectView(stageElements(), [], state.tasks.get(state.activeTaskId));
 }
 
@@ -343,22 +351,23 @@ async function switchTask(taskId, { restart = false } = {}) {
     return false;
   }
   switchingTask = true;
-  const ctx = captureContext(state);
   try {
-    if (!(await projects.confirmLeaveDirty()) || !isCurrentContext(state, ctx)) {
-      return false;
-    }
-    const revision = state.programRevision;
-    const leaving = leaveRunContext("switch");
-    const nextContext = captureContext(state);
-    if ((await leaving)?.stopped === false) {
+    const outcome = await prepareWorkspaceChange({
+      state, reason: "switch", confirm: projects.confirmLeaveDirty, leaveRunContext,
+    });
+    if (outcome === "run-pending") {
       toast("上一次运行还没有停下来，可以稍后再切换任务。", true);
+    }
+    if (outcome !== "ready" || !applyTask(taskId)) {
       return false;
     }
-    if (!isCurrentContext(state, nextContext) || revision !== state.programRevision || !applyTask(taskId)) {
-      return false;
+    if (state.skippedTaskIds.has(taskId)) {
+      const studentId = state.studentId;
+      API.feedback(taskId, "resume").then(() => {
+        if (studentId === state.studentId) state.skippedTaskIds.delete(taskId);
+      }).catch(() => {});
     }
-    ui.panels?.close("taskList", { silentFocus: true });
+    panels.close("taskList");
     toast(`已切换到：${task.title}`);
     return true;
   } finally {
@@ -366,61 +375,59 @@ async function switchTask(taskId, { restart = false } = {}) {
   }
 }
 
-async function submitPrediction() {
-  const ctx = captureContext(state, state.activeTaskId);
-  const task = state.tasks.get(ctx.taskId);
-  if (!task?.enterable || state.readonly || runner?.isBusy()) {
-    return;
-  }
-  if (state.predictionPending.has(ctx.taskId)) {
-    toast("正在记下这个猜想，稍等一下。");
-    return;
-  }
-  const raw = dom["prediction-input"].value.trim();
-  const value = Number(raw);
-  if (raw === "" || !Number.isInteger(value) || value < 0 || value > 1000) {
-    dom["prediction-feedback"].textContent = "请填一个 0 到 1000 之间的整数。";
-    dom["prediction-feedback"].className = "hint-text bad";
-    dom["prediction-input"].focus();
-    return;
-  }
-  const contentVersion = state.contentVersion;
-  const prediction = {
-    ...ctx,
-    programRevision: state.programRevision,
-    source: state.prediction.has(ctx.taskId) ? "reguess" : "initial",
-  };
-  state.predictionPending.set(ctx.taskId, prediction);
-  renderPrediction(state, predictionElements());
-  runner?.updateControls();
-  updateClassroom();
-  let failure = "";
+async function skipTask() {
+  const taskId = state.activeTaskId;
+  const studentId = state.studentId;
   try {
-    const ack = await API.prediction(ctx.taskId, value);
-    if (state.contentVersion === contentVersion) {
-      state.prediction.set(ctx.taskId, ack?.value ?? value);
-      state.predictionContext.set(ctx.taskId, prediction);
-    }
+    await API.feedback(taskId, "skip");
+    if (studentId !== state.studentId) return;
+    state.skippedTaskIds.add(taskId);
+    toast("任务先留在这里，想回来时随时回来。");
   } catch (error) {
-    failure = error.messageForChild || "预测没有记下来，可以再试一次。";
-  } finally {
-    state.predictionPending.delete(ctx.taskId);
-    if (ctx.taskId === state.activeTaskId) {
-      const current = isCurrentContext(state, ctx);
-      renderPrediction(state, predictionElements(), { preserveInput: current && Boolean(failure) });
-      if (current && failure) {
-        dom["prediction-feedback"].textContent = failure;
-        dom["prediction-feedback"].className = "hint-text bad";
-      }
-      runner?.updateControls();
-      updateClassroom();
+    if (studentId === state.studentId) toast(error.messageForChild || "暂时没记下这次跳过。", true);
+  }
+}
+
+function setStudent(studentId) {
+  state.studentId = studentId;
+  setClassroomStudent(studentId);
+}
+
+async function switchStudent(studentId) {
+  if (switchingTask || !state.course) return false;
+  switchingTask = true;
+  try {
+    const outcome = await prepareWorkspaceChange({
+      state, reason: "student", confirm: projects.confirmLeaveDirty, leaveRunContext,
+    });
+    if (outcome !== "ready") {
+      if (outcome === "run-pending") toast("等这次运行结束后再切换学生。", true);
+      return false;
     }
+    const next = state.tasks.get(state.activeTaskId)?.enterable ? state.activeTaskId
+      : [...state.tasks.values()].find((task) => task.enterable)?.taskId;
+    setStudent(studentId);
+    state.prediction.clear();
+    state.predictionContext.clear();
+    state.predictionPending.clear();
+    state.skippedTaskIds.clear();
+    state.mainCompletedHint = false;
+    state.lessonObservation = "";
+    dom["prediction-input"].value = "";
+    if (dom["summary-panel"].open) closeSummary();
+    if (next) applyTask(next);
+    return true;
+  } finally {
+    switchingTask = false;
   }
 }
 
 function stageElements() {
   return {
     actor: dom["stage-actor"],
+    track: dom["stage-track"],
+    lane: dom["stage-lane"],
+    path: dom["stage-path"],
     meta: dom["object-meta"],
     target: dom["stage-target"],
     ticks: dom["stage-ticks"],
@@ -437,7 +444,6 @@ function startupElements() {
     modeChip: dom["mode-chip"],
     retry: dom["startup-retry"],
     enter: dom["startup-enter"],
-    modeBadge: dom["tutor-mode-badge"],
   };
 }
 
@@ -447,8 +453,8 @@ function openSummary() {
     content: dom["summary-content"],
     state,
     callbacks: {
-      onVariant: async () => {
-        if (await switchTask("variant", { restart: true })) {
+      onVariant: async (taskId) => {
+        if (await switchTask(taskId, { restart: true })) {
           closeSummary();
           returnToWorkspace();
         }
@@ -468,12 +474,6 @@ function closeSummary() {
   dom["summary-panel"].close();
 }
 
-function clearDeleteUndo() {
-  window.clearTimeout(deleteUndoTimer);
-  deleteUndo = null;
-  dom["undo-delete-banner"].hidden = true;
-}
-
 function canEditHistory() {
   return !state.readonly && ["editing", "result", "error"].includes(state.phase);
 }
@@ -481,22 +481,19 @@ function canEditHistory() {
 function updateHistoryControls() {
   dom["undo-button"].disabled = !canEditHistory() || !history?.canUndo();
   dom["redo-button"].disabled = !canEditHistory() || !history?.canRedo();
-  if (deleteUndo && (deleteUndo.pageVersion !== state.pageVersion || deleteUndo.id !== history?.latestTransactionId())) {
-    clearDeleteUndo();
-  }
-  dom["undo-delete-action"].disabled = !canEditHistory();
 }
 
-function changeHistory(action, transactionId) {
-  if (canEditHistory() && history?.[action](transactionId)) {
+function changeHistory(action) {
+  if (canEditHistory() && history?.[action]()) {
     toast(action === "undo" ? "已撤销。" : "已重做。");
   }
 }
 
 function handleStateChange(reason) {
   if (reason === "phase") {
+    tutor?.updateContext();
     editor?.render();
-    renderPrediction(state, predictionElements());
+    predictions.render();
     updateHistoryControls();
     updateClassroom();
   }
@@ -509,7 +506,8 @@ function handleStateChange(reason) {
     updateHistoryControls();
   }
   if (reason === "program" || reason === "select") {
-    renderPrediction(state, predictionElements(), {});
+    if (reason === "select") tutor?.updateContext();
+    predictions.render();
     runner?.updateControls();
     updateClassroom();
   }
@@ -519,99 +517,18 @@ function handleStateChange(reason) {
   }
 }
 
-function refreshResultTabs(mode) {
-  const tabs = dom["result-tabs"];
-  if (tabs) {
-    tabs.hidden = !(mode === "editorFirst" || mode === "simple");
-  }
-}
-
-function setSlot(slot) {
-  ui.panels?.open(slot, { keepDefault: true, silentFocus: true });
-  dom["result-tab-result"]?.setAttribute("aria-pressed", String(slot === "result"));
-  dom["result-tab-tutor"]?.setAttribute("aria-pressed", String(slot === "tutor"));
-}
-
-function enterClassroom() {
-  const banner = dom["startup-banner"];
-  if (banner) {
-    if (banner.classList) {
-      banner.classList.add("entered");
-    } else {
-      banner.className = `${banner.className || ""} entered`;
-    }
-  }
-  ui.panels?.close("startupDetails", { keepOverridden: true, silentFocus: true });
-  updateClassroom();
-}
-
-function setupUx() {
-  ui.focusScope = createFocusScope({ fallbackAnchorId: "canvas-toolbar" });
-  const maps = collectPanelMaps();
-  ui.panels = createPanelController({
-    getPanel: (id) => maps.panelMap[id] || null,
-    getTrigger: (id) => maps.triggerMap[id] || null,
-    focusScope: ui.focusScope,
-  });
-  if (typeof document.querySelectorAll === "function") {
-    for (const trigger of document.querySelectorAll("[data-panel-trigger]")) {
-      const panelId = trigger.getAttribute?.("data-panel-trigger");
-      if (!panelId) {
-        continue;
-      }
-      trigger.addEventListener("click", () => {
-        ui.panels.toggleFromTrigger(panelId, trigger);
-      });
-    }
-  }
-  if (typeof document.addEventListener === "function") {
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || dom["summary-panel"].open || dom["confirm-dialog"].open) {
-        return;
-      }
-      const tag = event.target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-        return;
-      }
-      const panelId = event.target?.closest?.("[data-panel]")?.dataset.panel
-        || event.target?.closest?.("[data-panel-trigger]")?.dataset.panelTrigger;
-      if (panelId && !["result", "tutor"].includes(panelId) && ui.panels.isOpen(panelId)) {
-        event.preventDefault();
-        ui.panels.close(panelId);
-        return;
-      }
-      for (const panelId of ["systemInfo", "taskList", "learningObjectives", "otherThemes", "codePreview", "tutorMore", "tutorInput", "tutorEvidence", "startupDetails"]) {
-        if (ui.panels.isOpen(panelId)) {
-          ui.panels.close(panelId);
-          break;
-        }
-      }
-    });
-  }
-  ui.panels.open("result", { keepDefault: true, silentFocus: true });
-  ui.panels.open("tutor", { keepDefault: true, silentFocus: true });
-
-  ui.layoutMode = createLayoutMode();
-  const applyLayout = (value) => {
-    if (ui.currentLayout && ui.currentLayout !== value.mode) {
-      editor?.cancelDrag("layout");
-    }
-    ui.currentLayout = value.mode;
-    document.body?.setAttribute?.("data-layout-mode", value.mode);
-    ui.panels.applyMode(value.mode);
-    refreshResultTabs(value.mode);
-    const tutorOpen = ui.panels.isOpen("tutor") && !ui.panels.isOpen("result");
-    dom["result-tab-result"].setAttribute("aria-pressed", String(!tutorOpen));
-    dom["result-tab-tutor"].setAttribute("aria-pressed", String(tutorOpen));
-    editor?.refresh?.();
-  };
-  applyLayout(ui.layoutMode.current());
-  ui.layoutMode.onChange?.(applyLayout);
-}
-
 async function boot() {
   collectDom();
-  setupUx();
+  bindModelConfig(document, (config) => {
+    state.modelConfigRevision = config.revision;
+    tutor?.updateContext();
+  });
+  panels = bindWorkbenchPanels(dom, (changed) => {
+    if (changed) editor?.cancelDrag("layout");
+    editor?.refresh();
+    tutor?.updateContext();
+  });
+  dom["result-tab-tutor"].addEventListener("click", () => tutor?.focus?.());
   projects = createProjectWorkflow({
     state,
     elements: {
@@ -634,15 +551,22 @@ async function boot() {
     renderAll,
     updateRunControls: () => runner?.updateControls(),
     toast,
-    onEnterClassroom: enterClassroom,
+    onEnterClassroom: () => {
+      panels.enterClassroom();
+      updateClassroom();
+    },
+  });
+  predictions = createPredictionWorkflow({
+    state,
+    elements: predictionElements(),
+    isRunning: () => runner?.isBusy(),
+    onChange: () => {
+      runner?.updateControls();
+      updateClassroom();
+    },
+    toast,
   });
   subscribe(handleStateChange);
-  dom["prediction-submit"].addEventListener("click", submitPrediction);
-  dom["prediction-input"].addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      submitPrediction();
-    }
-  });
   dom["save-project"].addEventListener("click", projects.saveProject);
   dom["open-project"].addEventListener("click", () => dom["project-file"].click());
   dom["project-file"].addEventListener("change", () => {
@@ -654,17 +578,9 @@ async function boot() {
   }
   dom["summary-skipped"].addEventListener("click", () => toast("可以先继续练习，稍后再回来。"));
   dom["summary-close"].addEventListener("click", closeSummary);
-  dom["result-tab-result"]?.addEventListener("click", () => setSlot("result"));
-  dom["result-tab-tutor"]?.addEventListener("click", () => setSlot("tutor"));
   dom["run-locate"].addEventListener("click", () => returnToWorkspace(dom["run-locate"].dataset.blockId));
   dom["undo-button"].addEventListener("click", () => changeHistory("undo"));
   dom["redo-button"].addEventListener("click", () => changeHistory("redo"));
-  dom["undo-delete-action"]?.addEventListener("click", () => {
-    if (deleteUndo?.pageVersion === state.pageVersion) {
-      changeHistory("undo", deleteUndo.id);
-    }
-    clearDeleteUndo();
-  });
   window.addEventListener("beforeunload", (event) => {
     if (state.dirty) {
       event.preventDefault();
@@ -676,9 +592,7 @@ async function boot() {
     const schema = await API.schema();
     state.schema = schema;
     state.blocksByKind = new Map(schema.blocks.map((block) => [block.kind, block]));
-    state.portRules = schema.portRules || {};
     state.rejectedKinds = schema.rejectedKinds || [];
-    window.__cmkState = state;
 
     history = new History({
       snapshot: () => cloneTree(state.root),
@@ -706,17 +620,10 @@ async function boot() {
         undo: () => changeHistory("undo"),
         redo: () => changeHistory("redo"),
         deleteSelected: () => editor.deleteSelected(),
-        onDeleted: (id) => {
-          clearDeleteUndo();
-          if (id) {
-            deleteUndo = { id, pageVersion: state.pageVersion };
-            dom["undo-delete-banner"].hidden = false;
-            deleteUndoTimer = window.setTimeout(clearDeleteUndo, 6500);
-          }
-        },
       },
     });
 
+    window.__cmkEditor = editor;
     editor.openSelectedHint = askForHint;
     const startup = await API.startup();
     state.startup = startup;
@@ -739,9 +646,22 @@ async function boot() {
       refresh: (reason) => renderAll(reason || "run"),
       resetToTask: applyTask,
       getResultActions: resultCallbacks,
+      onPhaseChange: () => notify("phase"),
     });
 
-    tutor = createTutor({
+    const chatEnabled = startup.tutorChatEnabled === true;
+    dom["tutor-chat"].hidden = !chatEnabled;
+    dom["tutor-legacy"].hidden = chatEnabled;
+    tutor = chatEnabled ? createTutorChat({
+      elements: {
+        log: dom["tutor-chat-log"],
+        form: dom["tutor-chat-form"],
+        input: dom["tutor-chat-input"],
+        selection: dom["tutor-chat-selection"],
+        submit: dom["tutor-chat-send"],
+      },
+      state, editor, onLocate: returnToWorkspace, onReplayFrame: showReplayFrame,
+    }) : createTutor({
       elements: {
         message: dom["tutor-message"],
         detail: dom["tutor-detail"],
@@ -753,9 +673,36 @@ async function boot() {
       editor,
       toast,
       onLocate: returnToWorkspace,
+      onAnswer: () => panels.open("tutorInput"),
+      onReplayFrame: showReplayFrame,
+      actions: {
+        predict: () => dom["prediction-input"].focus(),
+        run: () => runner?.run(),
+        compare: () => {
+          panels.showResultSlot("result");
+          dom["result-content"].setAttribute("tabindex", "-1");
+          dom["result-content"].focus();
+        },
+        edit_one: () => returnToWorkspace(),
+        open_next_task: ({ task, choice }) => {
+          if (choice === "skip") return panels.open("taskList");
+          const next = nextTask(task);
+          return next ? switchTask(next.taskId) : openSummary();
+        },
+      },
     });
 
     const course = await API.course();
+    if (chatEnabled) {
+      await bindStudents({
+        elements: {
+          container: dom["student-controls"], select: dom["student-select"], dialog: dom["student-dialog"],
+          form: dom["student-form"], input: dom["student-name"], create: dom["student-create"],
+          save: dom["student-save"], cancel: dom["student-cancel"],
+        },
+        onInitial: setStudent, onSwitch: switchStudent, toast,
+      });
+    }
     if (courses.installCourse(course) && startup.status === "ready") {
       toast("课堂准备好啦，先读一读目标，再猜一猜角色会动几次。");
     }

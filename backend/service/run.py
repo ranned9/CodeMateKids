@@ -12,15 +12,20 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
-from backend.domain.program import ProgramError, evaluate_criteria, validate_program
+from backend.domain.program import ProgramError, evaluate_criteria, program_roots, validate_program
 from backend.infra.config import Settings
 from backend.infra.errors import ApiError, error_object
 from backend.infra.logging import write_log
 from backend.runner.supervisor import run_program
 from backend.service.course import load_course
 from backend.service.gate import evaluate_run_gate
+from backend.service.program_digest import digest_program
 from backend.service.startup import check_startup
+from backend.service.teaching import (
+    build_learning, described_edit, edit_signatures, learning_key, match_prediction, structure_facts, validate_snapshot,
+)
 from backend.session.store import SessionStore
+from backend.tutor.enums import Support
 
 RUN_RETENTION_S = 300
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -51,7 +56,15 @@ class RunContext:
     request_id: str
     cancel_token: str
     task_id: str
+    session: SessionStore
+    student_id: str | None = None
     task_snapshot: dict[str, Any] = field(default_factory=dict)
+    content_version: str | None = None
+    learning_key: str | None = None
+    program_digest: str | None = None
+    prediction: dict[str, Any] | None = None
+    support: str | None = None
+    hint_level: int | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     frames: list[dict[str, Any]] = field(default_factory=list)
     condition: threading.Condition = field(default_factory=threading.Condition)
@@ -91,8 +104,10 @@ class RunManager:
             for run_id in stale:
                 self._runs.pop(run_id, None)
 
-    def submit(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def submit(self, payload: dict[str, Any], *, student_id: str | None = None,
+               session: SessionStore | None = None) -> dict[str, Any]:
         self._cleanup()
+        session = self.session if session is None else session
         request_id, cancel_token = validate_run_identifiers(payload)
         task_id = str(payload.get("taskId") or "")
 
@@ -102,11 +117,13 @@ class RunManager:
         if task is None:
             raise ApiError("PROGRAM_SCHEMA_INVALID")
         task_enterable = task_id not in bundle.blocked
+        learning_context = payload.get("learningContext") or {}
+        key = learning_key(learning_context, bundle, task_id)
         decision = evaluate_run_gate(
             startup,
             task_id,
             task_enterable,
-            self.session.has_prediction(task_id),
+            session.has_prediction(task_id, bundle.content_version if key else None),
         )
         if not decision.allowed:
             raise ApiError(str(decision.code))
@@ -117,11 +134,33 @@ class RunManager:
 
         program = payload.get("program")
         try:
-            validate_program(program, bundle.registry, expected_task_id=task_id)
+            if key:
+                validate_snapshot(program, bundle, task_id)
+                if payload.get("courseRef") != program["courseRef"]:
+                    raise ProgramError("PROGRAM_SCHEMA_INVALID", "运行和积木的课程信息对不上。")
+            else:
+                validate_program(program, bundle.registry, expected_task_id=task_id)
         except ProgramError as exc:
             raise ApiError(exc.code, exc.block_id, exc.message) from exc
 
         limits = self._clamp_limits(payload.get("limits"))
+        digest = digest_program(program) if key else None
+        prediction = None
+        support = Support.UNKNOWN if (key or task.get("programCriteria")) else None
+        hint_level = None
+        if key:
+            prediction = match_prediction(
+                session.teaching.get_prediction(key, learning_context.get("predictionId")), digest,
+            )
+            ids = learning_context.get("seenHintIds")
+            session.confirm_teaching_hints(key, task_id, ids)
+            confirmed = session.teaching.confirmed_level(key)
+            if confirmed:
+                support = Support.ASSISTED
+                hint_level = confirmed
+            elif ids == [] and learning_context.get("workspaceSource") == "task":
+                support = Support.NONE
+                hint_level = 0
 
         with self._lock:
             if request_id in self._runs:
@@ -134,7 +173,15 @@ class RunManager:
                 request_id=request_id,
                 cancel_token=cancel_token,
                 task_id=task_id,
+                session=session,
+                student_id=student_id,
                 task_snapshot=deepcopy(task),
+                content_version=bundle.content_version,
+                learning_key=key,
+                program_digest=digest,
+                prediction=prediction,
+                support=support,
+                hint_level=hint_level,
             )
             self._runs[request_id] = context
             self._active_id = request_id
@@ -209,17 +256,54 @@ class RunManager:
                 on_diagnostic,
             )
             success, failures = evaluate_criteria(context.task_snapshot, result.get("objects", []))
+            structure = None
+            if context.learning_key or context.task_snapshot.get("programCriteria"):
+                structure = structure_facts(program_roots(program, runnable_only=True), context.task_snapshot)
+                if structure["structure_met"] is False:
+                    success = False
+                    failures.append("把前进和转弯按顺序放进同一个重复积木，再试一试。")
             result["success"] = bool(success and result.get("status") == "completed")
             result["failures"] = failures
             result["memoryLimitMode"] = result.get("memoryLimitMode", "unavailable")
-            self._publish_terminal_once(context, result)
+            self._complete(context, program, result, structure)
         except Exception as exc:  # noqa: BLE001 - 编排异常必须收敛为崩溃终态
             if context.result is None:
-                self._publish_terminal_once(context, self._crash_result(context, started, type(exc).__name__))
+                self._complete(context, program, self._crash_result(context, started, type(exc).__name__))
             else:
                 self._diagnose(context, "run_finalize_error", type(exc).__name__)
         finally:
             self._finalize_run(context, started)
+
+    def _complete(self, context: RunContext, program: dict, result: dict, structure: dict | None = None) -> None:
+        if context.learning_key or context.task_snapshot.get("programCriteria"):
+            try:
+                learning = build_learning(
+                    program=program, task=context.task_snapshot, run_result=result,
+                    prediction=context.prediction, structure=structure,
+                )
+                if learning is not None:
+                    if context.learning_key:
+                        signatures = edit_signatures(program, structure) if structure and result["status"] == "completed" else {}
+                        recent = context.session.teaching.recent_runs(context.learning_key, limit=1)
+                        edit = described_edit(recent[0]["editSignatures"], signatures) if recent else None
+                        context.session.teaching.put_run(context.learning_key, context.request_id, {
+                            "learning": learning, "programDigest": context.program_digest,
+                            "requestId": context.request_id, "status": result["status"],
+                            "errorBlockId": (result.get("error") or {}).get("blockId"),
+                            "editSignatures": signatures,
+                        })
+                        if edit:
+                            context.session.add_evidence(
+                                task_id=context.task_id, source_type="edit_trace", observed_fact=edit,
+                                interpretation_text="观察到一次积木调整。", confidence=1.0,
+                                alternatives=["还可以再用新的任务来观察"],
+                                follow_up="比较两次运行结果。", request_id=context.request_id,
+                            )
+                    result["learning"] = learning
+            except Exception as exc:  # noqa: BLE001 - 教学附加数据不阻塞终态
+                self._diagnose(context, "run_teaching_error", type(exc).__name__)
+        self._record_outcome_safely(context, result)
+        self._publish_terminal_once(context, result)
 
     def _publish_terminal_once(self, context: RunContext, result: dict[str, Any]) -> bool:
         with context.condition:
@@ -259,37 +343,38 @@ class RunManager:
         }
 
     def _finalize_run(self, context: RunContext, started: float) -> None:
-        if context.result is not None:
-            self._record_outcome_safely(context)
         self._log_finished_safely(context, started)
         context.finish()
         with self._lock:
             if self._active_id == context.request_id:
                 self._active_id = None
 
-    def _record_outcome_safely(self, context: RunContext) -> None:
+    def _record_outcome_safely(self, context: RunContext, result: dict) -> None:
         try:
-            self._record_outcome(context)
+            self._record_outcome(context, result)
         except Exception as exc:  # noqa: BLE001 - 证据失败不得影响终态
             self._diagnose(context, "run_finalize_error", type(exc).__name__)
 
-    def _record_outcome(self, context: RunContext) -> None:
-        result = context.result or {}
+    def _record_outcome(self, context: RunContext, result: dict) -> None:
         status = str(result.get("status", "crashed"))
         outcome = OUTCOME_BY_STATUS.get(status, "crashed")
         if outcome == "succeeded" and not result.get("success"):
             outcome = "failed"
         task = context.task_snapshot
         task_id = context.task_id
-        self.session.record_attempt(task_id, context.request_id, outcome)
+        context.session.record_attempt(
+            task_id, context.request_id, outcome, context.hint_level,
+            support=context.support, content_version=context.content_version,
+        )
         objects = result.get("objects") or []
-        steps = 0
-        for item in objects:
-            if isinstance(item, dict) and item.get("id") == "stage":
-                steps = int(item.get("steps", 0))
-        if outcome in ("cancelled", "timeout"):
+        steps = next((item.get("steps") for item in objects if isinstance(item, dict) and item.get("id") == "stage"), None)
+        if status != "completed":
             observed = f"本次运行未完成（{status}），没有产生成功结果"
             interpretation = "这次没有拿到完整结果，不能据此判断孩子是否理解"
+            confidence = 1.0
+        elif steps is None:
+            observed = "这次没有读到舞台的步数。"
+            interpretation = "可以重新运行后再观察。"
             confidence = 1.0
         elif outcome == "succeeded":
             observed = f"本次运行角色累计走了 {steps} 步，达到任务成功标准"
@@ -300,7 +385,7 @@ class RunManager:
             interpretation = "这一次的结果与目标不一致，原因可能是循环次数或动作位置"
             confidence = 0.8
         source_type = "transfer_task" if task.get("type") == "variant" else "run_result"
-        self.session.add_evidence(
+        context.session.add_evidence(
             task_id=task_id,
             source_type=source_type,
             observed_fact=observed,
@@ -310,6 +395,29 @@ class RunManager:
             follow_up="下一次换一个步数，再先预测再运行",
             request_id=context.request_id,
         )
+        if context.session.student_id and context.learning_key:
+            learning = result.get("learning") or {}
+            facts = learning.get("facts") or {}
+            match = learning.get("predictionMatch", "none")
+            prediction = facts.get("predictionValue")
+            moves = facts.get("moves")
+            context.session.observe(
+                context.learning_key, task.get("teaching", {}).get("knowledgePointIds", []),
+                "run", context.request_id, "run_result",
+                {
+                    "status": status,
+                    "outcome": outcome,
+                    "pattern": learning.get("pattern"),
+                    "structureMet": learning.get("structureMet"),
+                    "support": context.support,
+                    "predictionMatch": match,
+                    "predictionCorrect": prediction == moves if (
+                        status == "completed" and match == "exact" and type(prediction) is int and type(moves) is int
+                    ) else None,
+                },
+            )
+            if not context.session.memory_available:
+                result["memorySaved"] = False
 
     def _log_finished_safely(self, context: RunContext, started: float) -> None:
         try:
@@ -348,10 +456,10 @@ class RunManager:
         except Exception:
             pass
 
-    def snapshot(self, request_id: str) -> dict[str, Any] | None:
+    def snapshot(self, request_id: str, *, student_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
             context = self._runs.get(request_id)
-        if context is None:
+        if context is None or context.student_id != student_id:
             return None
         result = context.result or {}
         if context.finished and not result:
@@ -365,10 +473,10 @@ class RunManager:
             "errorCategory": (result.get("error") or {}).get("category"),
         }
 
-    def stream(self, request_id: str, last_event_id: int = 0) -> Iterator[str]:
+    def stream(self, request_id: str, last_event_id: int = 0, *, student_id: str | None = None) -> Iterator[str]:
         with self._lock:
             context = self._runs.get(request_id)
-        if context is None:
+        if context is None or context.student_id != student_id:
             raise ApiError("RUN_NOT_FOUND")
 
         def generator() -> Iterator[str]:
@@ -394,11 +502,11 @@ class RunManager:
 
         return generator()
 
-    def cancel(self, request_id: str, cancel_token: str) -> dict[str, Any]:
+    def cancel(self, request_id: str, cancel_token: str, *, student_id: str | None = None) -> dict[str, Any]:
         validate_request_id(request_id)
         with self._lock:
             context = self._runs.get(request_id)
-        if context is None:
+        if context is None or context.student_id != student_id:
             raise ApiError("RUN_NOT_FOUND")
         if context.cancel_token != cancel_token:
             raise ApiError("CANCEL_TOKEN_MISMATCH")

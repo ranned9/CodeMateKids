@@ -14,6 +14,11 @@
       <span class="brand-sub">AI 编程小老师</span>
     </div>
     <div class="header-actions">
+      <div class="student-controls" id="student-controls" hidden>
+        <label for="student-select">当前学生</label>
+        <select id="student-select"><option value="">临时练习</option></select>
+        <button class="ghost-button" id="student-create" type="button">新建档案</button>
+      </div>
       <span class="save-state" id="save-state" role="status" aria-live="polite">还没保存</span>
       <button type="button" class="ghost-button" id="task-list-trigger" data-panel-trigger="taskList" aria-controls="task-list-panel" aria-expanded="false">其他任务</button>
       <button type="button" class="ghost-button" id="summary-open">学习总结</button>
@@ -29,6 +34,23 @@
       <h2 class="panel-title">系统信息</h2>
     </div>
     <div class="system-info-body" id="system-info-body"></div>
+    <form class="model-config" id="model-config" autocomplete="off" aria-labelledby="model-config-title">
+      <h3 id="model-config-title">模型接入</h3>
+      <p id="model-config-active" class="muted">正在读取当前配置…</p>
+      <label for="model-base-url">API 基础地址</label>
+      <input id="model-base-url" type="url" maxlength="512" placeholder="https://api.openai.com/v1" aria-describedby="model-config-help" required>
+      <small id="model-config-help">填写服务商给出的基础地址。测试通过后自动保存配置和密钥，重启后仍可启用。</small>
+      <label for="model-name">模型名</label>
+      <input id="model-name" type="text" maxlength="160" required>
+      <label for="model-api-key">API 密钥</label>
+      <input id="model-api-key" type="password" maxlength="2048">
+      <div class="model-config-actions">
+        <button id="model-test" type="submit" class="ghost-button" disabled>测试连接</button>
+        <button id="model-activate" type="button" class="ghost-button" disabled>启用模型</button>
+        <button id="model-disable" type="button" class="ghost-button" disabled>使用演示回复</button>
+      </div>
+      <p id="model-config-feedback" class="muted" role="status"></p>
+    </form>
     <div class="system-info-chips">
       <span class="status-chip" id="python-chip">Python 版本检查中…</span>
       <span class="status-chip" id="version-chip">课程 / schema 版本检查中…</span>
@@ -89,10 +111,6 @@
           <button type="button" class="ghost-button" id="redo-button" disabled>重做</button>
           <button type="button" class="ghost-button" data-panel-trigger="codePreview" aria-controls="code-preview-panel" aria-expanded="false">看代码</button>
         </div>
-        <p class="undo-banner" id="undo-delete-banner" hidden>
-          已删除积木。
-          <button type="button" class="ghost-button" id="undo-delete-action">撤销删除</button>
-        </p>
         <div class="canvas-stage">
           <canvas id="block-canvas" width="720" height="460" aria-label="积木画布"></canvas>
           <div class="canvas-empty" id="canvas-empty">
@@ -123,69 +141,93 @@
         </div>
         <div class="object-view" aria-label="角色状态">
           <div class="object-title">舞台 · 累计步数</div>
-          <div class="stage-track" id="stage-track">
-            <div id="stage-ticks" aria-hidden="true"></div>
-            <div class="stage-target" id="stage-target" hidden aria-hidden="true"></div>
-            <div class="stage-actor" id="stage-actor">🐢</div>
+          <div class="stage-track" id="stage-track" tabindex="0" role="region" aria-label="累计步数舞台，可左右滚动">
+            <div class="stage-lane" id="stage-lane">
+              <div id="stage-ticks" aria-hidden="true"></div>
+              <div class="stage-target" id="stage-target" hidden aria-hidden="true"></div>
+              <div class="stage-actor" id="stage-actor">🐢</div>
+            </div>
           </div>
+          <canvas id="stage-path" class="stage-path" width="360" height="180" aria-label="海龟实际走过的路线" hidden></canvas>
           <div class="object-meta" id="object-meta">角色还没有动过。</div>
         </div>
       </section>
 
       <section class="panel result-panel" id="result-panel" data-panel="result" aria-label="结果区">
-        <div class="panel-head">
-          <h2 class="panel-title">结果区</h2>
-
-        </div>
         <div id="result-content">
           <p class="muted">运行一次，就能看到结果啦。</p>
         </div>
         <details id="result-details">
-          <summary>查看运行详情</summary>
-          <div id="result-detail-content"></div>
-          <div class="result-output" id="live-output" hidden></div>
-          <div class="prediction-compare" id="prediction-compare" hidden>
-            <div class="compare-title">预测和结果</div>
-            <div class="compare-grid">
-              <span>你的预测</span><strong id="compare-prediction">—</strong>
-              <span>实际观察</span><strong id="compare-actual">—</strong>
-              <span>是否一致</span><strong id="compare-match">—</strong>
+          <summary>运行详情</summary>
+          <div class="result-details-body">
+            <div id="result-detail-content"></div>
+            <div class="result-output" id="live-output" hidden></div>
+            <div class="prediction-compare" id="prediction-compare" hidden>
+              <div class="compare-title">预测和结果</div>
+              <div class="compare-grid">
+                <span>你的预测</span><strong id="compare-prediction">—</strong>
+                <span>实际观察</span><strong id="compare-actual">—</strong>
+                <span>是否一致</span><strong id="compare-match">—</strong>
+              </div>
             </div>
           </div>
         </details>
       </section>
 
-      <section class="panel tutor-panel" id="tutor-panel" data-panel="tutor" aria-label="辅导区">
+      <section class="panel tutor-panel" id="tutor-panel" data-panel="tutor" aria-labelledby="tutor-title">
         <div class="tutor-head">
-          <h2 class="panel-title">辅导区</h2>
-          <span class="mode-badge" id="tutor-mode-badge">演示回复</span>
+          <h2 class="panel-title" id="tutor-title">AI 小老师</h2>
+          <span class="mode-badge" id="tutor-mode-badge" hidden></span>
         </div>
-        <div class="tutor-message" id="tutor-message" tabindex="-1" aria-live="polite">
-          <p class="muted">需要帮忙时，点下面的按钮。小老师会先给轻轻的小提示。</p>
+        <div class="tutor-body tutor-chat" id="tutor-chat">
+          <div class="tutor-chat-log" id="tutor-chat-log" role="log" aria-label="和小老师的对话" aria-live="polite">
+            <p class="muted">有哪一步想一起看看？</p>
+          </div>
+          <form class="tutor-composer" id="tutor-chat-form">
+            <label for="tutor-chat-input">你的问题</label>
+            <p class="muted" id="tutor-chat-selection" hidden></p>
+            <textarea id="tutor-chat-input" rows="2" maxlength="300" placeholder="例如：这块积木是什么意思？"></textarea>
+            <button type="submit" class="primary-button" id="tutor-chat-send">发送</button>
+          </form>
         </div>
-        <div class="tutor-actions">
-          <button type="button" class="ghost-button" data-choice="hint">轻提示</button>
-          <button type="button" class="ghost-button" data-choice="self_try">我想自己试</button>
-          <button type="button" class="ghost-button" data-panel-trigger="tutorMore" aria-controls="tutor-more" aria-expanded="false">更多帮助</button>
-          <button type="button" class="ghost-button" data-panel-trigger="tutorEvidence" aria-controls="tutor-detail" aria-expanded="false">看依据</button>
+        <div class="tutor-body" id="tutor-legacy" hidden>
+          <button type="button" class="ghost-button" id="tutor-ask-toggle" data-panel-trigger="tutorInput" aria-controls="tutor-ask" aria-expanded="false">问小老师</button>
+          <div class="tutor-message" id="tutor-message" tabindex="-1" aria-live="polite">
+            <p class="muted">需要帮忙时，可以请小老师给一个轻提示。</p>
+          </div>
+          <div class="tutor-ask" id="tutor-ask" data-panel="tutorInput" hidden>
+            <label for="tutor-input">你的问题</label>
+            <textarea id="tutor-input" rows="2" maxlength="300" placeholder="例如：为什么角色走了 2 步？"></textarea>
+            <button type="button" class="primary-button" id="tutor-submit">提问</button>
+          </div>
+          <div class="tutor-actions">
+            <button type="button" class="ghost-button" data-choice="hint">轻提示</button>
+            <button type="button" class="ghost-button" data-choice="self_try">我想自己试</button>
+            <button type="button" class="ghost-button" data-panel-trigger="tutorMore" aria-controls="tutor-more" aria-expanded="false">更多帮助</button>
+            <button type="button" class="ghost-button" data-panel-trigger="tutorEvidence" aria-controls="tutor-detail" aria-expanded="false">看依据</button>
+          </div>
+          <div class="tutor-actions" id="tutor-more" data-panel="tutorMore" hidden>
+            <button type="button" class="ghost-button" data-choice="more_hint">更多提示</button>
+            <button type="button" class="ghost-button" data-choice="example">换个例子</button>
+            <button type="button" class="ghost-button" data-choice="skip">先跳过</button>
+          </div>
+          <div class="tutor-detail" id="tutor-detail" data-panel="tutorEvidence" hidden></div>
         </div>
-        <div class="tutor-actions" id="tutor-more" data-panel="tutorMore" hidden>
-          <button type="button" class="ghost-button" data-choice="more_hint">更多提示</button>
-          <button type="button" class="ghost-button" data-choice="example">换个例子</button>
-          <button type="button" class="ghost-button" data-choice="skip">先跳过</button>
-        </div>
-        <div class="tutor-ask" id="tutor-ask" data-panel="tutorInput" hidden>
-          <label for="tutor-input">问问小老师</label>
-          <textarea id="tutor-input" rows="2" maxlength="300" placeholder="例如：为什么角色走了 2 步？"></textarea>
-          <button type="button" class="primary-button" id="tutor-submit">提问</button>
-        </div>
-        <div class="tutor-ask-toggle">
-          <button type="button" class="ghost-button" id="tutor-ask-toggle" data-panel-trigger="tutorInput" aria-controls="tutor-ask" aria-expanded="false">我想自己提问</button>
-        </div>
-        <div class="tutor-detail" id="tutor-detail" data-panel="tutorEvidence" hidden></div>
       </section>
     </div>
   </main>
+
+  <dialog id="student-dialog" aria-labelledby="student-dialog-title">
+    <form id="student-form">
+      <h2 id="student-dialog-title">新建学生档案</h2>
+      <label for="student-name">昵称</label>
+      <input id="student-name" maxlength="24" required autocomplete="off">
+      <div class="dialog-actions">
+        <button type="button" class="ghost-button" id="student-cancel">取消</button>
+        <button type="submit" class="primary-button" id="student-save">创建</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog class="summary-panel" id="summary-panel" aria-labelledby="summary-title">
     <div class="summary-inner">

@@ -11,6 +11,7 @@ const asUrl = (relative) => pathToFileURL(path.join(root, relative)).href;
 const summaryModule = await import(asUrl("frontend/js/ux/resultSummary.js"));
 const saveModule = await import(asUrl("frontend/js/ux/saveState.js"));
 const trackModule = await import(asUrl("frontend/js/ux/stageTrack.js"));
+const { updateObjectView } = await import(asUrl("frontend/js/views/result.js"));
 const classroomModule = await import(asUrl("frontend/js/ux/classroomState.js"));
 const summarySections = await import(asUrl("frontend/js/ux/summarySections.js"));
 const { repeatedMoveInLoop } = await import(asUrl("frontend/js/ux/loopEvidence.js"));
@@ -135,15 +136,44 @@ assert.equal(failed.needsResave, true);
 assert.match(failed.label, /再试一次/);
 assert.equal(saveModule.saveStateClass("failed"), "bad");
 
-const track = trackModule.buildStageTrack({ targetSteps: 4, actualSteps: 2 });
-assert.equal(track.hasTarget, true);
-assert.equal(track.ratio, 0.5);
-assert.equal(track.overflowSteps, 0);
-assert.equal(trackModule.buildStageTrack({ targetSteps: 4, actualSteps: 6 }).overflowSteps, 2);
-assert.equal(trackModule.buildStageTrack({ targetSteps: null, actualSteps: 6 }).hasTarget, false);
-assert.equal(trackModule.actorPercent(track), 45);
-assert.deepEqual(trackModule.stageTicks(4).map((tick) => tick.value), [0, 1, 2, 3, 4]);
-assert.equal(trackModule.stageTicks(6).at(-1).percent, 82);
+const track = trackModule.buildStageTrack({ targetSteps: 4, actualSteps: 2, viewportWidth: 300 });
+assert.equal(track.actorPosition, track.ticks[2].position);
+assert.equal(track.targetPosition, track.ticks[4].position);
+assert.equal(track.scrollLeft, 0);
+assert.deepEqual(track.ticks.map((tick) => tick.value), [0, 1, 2, 3, 4]);
+assert.equal(trackModule.buildStageTrack({ actualSteps: 6 }).targetPosition, null);
+
+const stageOptions = { targetSteps: 6, actualSteps: 12, viewportWidth: 320 };
+const longTrack = trackModule.buildStageTrack(stageOptions);
+assert.equal(longTrack.targetPosition, longTrack.ticks[6].position);
+assert.equal(longTrack.actorPosition, longTrack.ticks[12].position);
+assert.equal(longTrack.actorPosition - longTrack.scrollLeft, 160);
+assert.ok(longTrack.width - stageOptions.viewportWidth >= longTrack.scrollLeft);
+assert.equal(longTrack.overflowLabel, "超出目标 6 步");
+const replayTrack = trackModule.buildStageTrack({ ...stageOptions, displaySteps: 3 });
+assert.equal(replayTrack.width, longTrack.width);
+assert.equal(replayTrack.actorPosition, longTrack.ticks[3].position);
+assert.equal(replayTrack.overflowLabel, "");
+const distantTrack = trackModule.buildStageTrack({ ...stageOptions, actualSteps: 1_000_000 });
+assert.ok(distantTrack.width < 30_000 && distantTrack.ticks.length < 130);
+assert.equal(distantTrack.ticks.at(-1).value, 1_000_000);
+
+const stageElements = {
+  track: { clientWidth: stageOptions.viewportWidth, scrollLeft: 0 },
+  lane: { style: {} },
+  actor: { style: {} },
+  target: { style: {} },
+  meta: {},
+};
+const stageObjects = [{ id: "stage", steps: 12, moves: 6, heading: 0 }];
+updateObjectView(stageElements, stageObjects, variantTask);
+assert.equal(stageElements.actor.style.left, `${longTrack.actorPosition}px`);
+assert.equal(stageElements.target.style.left, `${longTrack.targetPosition}px`);
+assert.equal(stageElements.track.scrollLeft, longTrack.scrollLeft);
+assert.match(stageElements.meta.textContent, /累计走了 12 步（超出目标 6 步）/);
+stageElements.track.scrollLeft = 0;
+updateObjectView(stageElements, stageObjects, variantTask);
+assert.equal(stageElements.track.scrollLeft, longTrack.scrollLeft, "重新运行后回到海龟的位置");
 
 const loopCourse = JSON.parse(readFileSync(path.join(root, "content/demo-loop/course.json"), "utf8"));
 const mainRoot = loopCourse.tasks[0].initialProgram.root;

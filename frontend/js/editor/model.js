@@ -623,11 +623,10 @@ export function removeBlock(root, blockId, options) {
   return { root: detached.root, removed: detached.node };
 }
 
-export function validateTree(root) {
+export function validateTree(root, definitions) {
   const issues = [];
   const invalidIds = new Set();
   const blockedKinds = new Set();
-  const definitions = window.__cmkState?.blocksByKind;
   if (!definitions) {
     return { ok: true, issues, invalidIds, blockedKinds };
   }
@@ -697,14 +696,20 @@ export function programSummary(root, definitions) {
   return parts.join(" → ");
 }
 
-export function buildProgram(root, task, courseId = "demo-loop", options = {}) {
+export function buildProgram(root, task, courseId, options = {}) {
+  const taskCourse = task.initialProgram?.courseRef;
+  const updatedAt = new Date().toISOString();
   return {
     format: "codematekids.program",
     formatVersion: Array.isArray(root) ? 2 : 1,
     target: { language: "python", version: "3.12" },
-    courseRef: { courseId, version: options.courseVersion ?? 1, taskId: task.taskId },
+    courseRef: {
+      courseId: courseId ?? taskCourse?.courseId ?? "demo-loop",
+      version: options.courseVersion ?? taskCourse?.version ?? 1,
+      taskId: task.taskId,
+    },
     ...(Array.isArray(root) ? { stacks: root } : { root: root || null }),
-    metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    metadata: { createdAt: updatedAt, updatedAt },
   };
 }
 

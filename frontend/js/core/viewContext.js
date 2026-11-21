@@ -12,6 +12,36 @@ export function captureContext(state, taskId) {
   };
 }
 
+export function captureLearningContext(state, taskId, predictionId = null) {
+  return {
+    taskId: taskId ?? state.activeTaskId,
+    pageVersion: state.pageVersion || 0,
+    studentId: state.studentId ?? null,
+    workspaceId: state.workspaceId || null,
+    contentVersion: state.contentVersion || null,
+    programRevision: state.programRevision || 0,
+    modelConfigRevision: state.modelConfigRevision || 0,
+    predictionId: predictionId ?? null,
+    runRequestId: state.learningRunRequestId ?? state.lastRunContext?.requestId ?? null,
+  };
+}
+
+export function isLearningContextCurrent(state, snapshot) {
+  if (!snapshot) {
+    return false;
+  }
+  return (
+    snapshot.taskId === state.activeTaskId &&
+    snapshot.pageVersion === (state.pageVersion || 0) &&
+    snapshot.studentId === (state.studentId ?? null) &&
+    snapshot.workspaceId === (state.workspaceId || null) &&
+    snapshot.contentVersion === (state.contentVersion || null) &&
+    snapshot.programRevision === (state.programRevision || 0) &&
+    snapshot.modelConfigRevision === (state.modelConfigRevision || 0) &&
+    snapshot.runRequestId === (state.learningRunRequestId ?? state.lastRunContext?.requestId ?? null)
+  );
+}
+
 export function isCurrentContext(state, ctx) {
   if (!ctx) {
     return false;
