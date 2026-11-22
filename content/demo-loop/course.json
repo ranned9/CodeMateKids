@@ -40,7 +40,7 @@
               {
                 "blockId": "b-move-main",
                 "kind": "motion.move",
-                "inputs": {"steps": 1},
+                "inputs": {},
                 "body": [],
                 "next": null
               }
@@ -78,11 +78,6 @@
           "errorPattern": "action_outside_loop",
           "linkedHintLevels": [1, 2],
           "description": "前进动作没有放进循环体"
-        },
-        {
-          "errorPattern": "move_steps_mismatch",
-          "linkedHintLevels": [2, 3],
-          "description": "每次步数与重复次数的组合不等于目标"
         }
       ],
       "hintLadder": [
@@ -95,8 +90,8 @@
         {
           "level": 2,
           "action": "hint",
-          "promptText": "先看看每次走几步，再想想重复多少次能走 4 步。",
-          "executableNextStep": "改一个数字，运行后数一数"
+          "promptText": "每次向前走一步，想想重复多少次能走 4 步。",
+          "executableNextStep": "改一改重复次数，运行后数一数"
         },
         {
           "level": 3,
@@ -107,8 +102,7 @@
       ],
       "demoSolution": {
         "note": "示范解法，仅在需要时展示",
-        "times": 4,
-        "steps": 1
+        "times": 4
       },
       "variantOf": null,
       "variantTaskId": "variant",
@@ -119,8 +113,8 @@
       "taskId": "variant",
       "type": "variant",
       "title": "小海龟走六步",
-      "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 2, "knowledgePointIds": ["kp.loop"]},
-      "objective": "让小海龟累计走 6 步，试试每次走 2 步。加练时，可以改一改它走完后说的话。",
+      "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "knowledgePointIds": ["kp.loop"]},
+      "objective": "让小海龟累计走 6 步。加练时，可以改一改它走完后说的话。",
       "predictionQuestion": "先猜一猜：小海龟这次会动几次？",
       "durationHint": "大约 4 分钟",
       "initialProgram": {
@@ -141,7 +135,7 @@
               {
                 "blockId": "b-move-variant",
                 "kind": "motion.move",
-                "inputs": {"steps": 2},
+                "inputs": {},
                 "body": [],
                 "next": null
               }
@@ -179,26 +173,26 @@
         {
           "errorPattern": "loop_count_mismatch",
           "linkedHintLevels": [1, 2, 3],
-          "description": "重复次数与每次步数的组合不等于 6"
+          "description": "重复次数与目标步数不一致"
         },
         {
-          "errorPattern": "move_steps_mismatch",
-          "linkedHintLevels": [2, 3],
-          "description": "每次走 2 步时重复次数应为 3"
+          "errorPattern": "action_outside_loop",
+          "linkedHintLevels": [1, 2],
+          "description": "前进动作没有放进循环体"
         }
       ],
       "hintLadder": [
         {
           "level": 1,
           "action": "ask_question",
-          "promptText": "每次走 2 步，要走 6 步，需要重复几次？",
-          "executableNextStep": "想一想 2 和 6 的关系"
+          "promptText": "每次走 1 步，要走 6 步，需要重复几次？",
+          "executableNextStep": "数一数要执行几次向前走"
         },
         {
           "level": 2,
           "action": "break_down",
-          "promptText": "先把目标分成几小段：2 步、2 步、2 步，一共几段？",
-          "executableNextStep": "把重复次数改成分段的数量"
+          "promptText": "每多重复一次，小海龟就多走一步。它还需要走几步？",
+          "executableNextStep": "对照目标调整重复次数"
         },
         {
           "level": 3,
@@ -209,8 +203,7 @@
       ],
       "demoSolution": {
         "note": "示范解法，仅在需要时展示",
-        "times": 3,
-        "steps": 2
+        "times": 6
       },
       "variantOf": "main",
       "variantTaskId": null,
@@ -222,10 +215,10 @@
       "taskId": "transfer-square",
       "type": "variant",
       "title": "让海龟画正方形",
-      "objective": "让海龟沿四条边走回起点。每条边用一块前进积木走 2 步，再转一个直角。试着把反复做的动作放进同一个重复积木。",
+      "objective": "让海龟沿四条边走回起点。每条边向前走一步，再转一个直角。试着把这两个动作放进同一个重复积木。",
       "predictionQuestion": "先猜一猜：这段程序一共会执行几次前进？",
       "durationHint": "大约 5 分钟",
-      "teaching": {"goalKind": "square", "suggestedStepsPerMove": 2, "knowledgePointIds": ["kp.loop"]},
+      "teaching": {"goalKind": "square", "knowledgePointIds": ["kp.loop"]},
       "initialProgram": {
         "format": "codematekids.program",
         "formatVersion": 1,
@@ -240,7 +233,6 @@
         {"code": "square_origin_x", "description": "海龟左右回到起点", "check": {"object": "stage", "field": "x", "op": "eq", "value": 0}},
         {"code": "square_origin_y", "description": "海龟上下回到起点", "check": {"object": "stage", "field": "y", "op": "eq", "value": 0}},
         {"code": "square_heading", "description": "海龟最后朝着开始的方向", "check": {"object": "stage", "field": "heading", "op": "eq", "value": 0}},
-        {"code": "square_distance", "description": "海龟沿四条边走了 8 步", "check": {"object": "stage", "field": "steps", "op": "eq", "value": 8}},
         {"code": "square_sides", "description": "海龟用四次前进走完四条边", "check": {"object": "stage", "field": "moves", "op": "eq", "value": 4}}
       ],
       "programCriteria": ["square_single_repeat"],

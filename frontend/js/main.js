@@ -89,6 +89,12 @@ function collectDom() {
     "a11y-mirror",
     "code-preview-text",
     "run-button",
+    "debug-button",
+    "debug-panel",
+    "debug-step",
+    "debug-play",
+    "debug-speed",
+    "debug-status",
     "stop-button",
     "reset-button",
     "run-hint",
@@ -235,14 +241,12 @@ function nextTask(task) {
 }
 
 function showReplayFrame(frame) {
-  if (!state.lastResult) return;
+  if (!state.lastResult || runner?.isBusy()) return;
   const task = state.tasks.get(state.activeTaskId);
   const showFrame = state.lastResultOwnership === "current" ? frame : null;
   updateObjectView(stageElements(), state.lastResult.objects, task, state.lastResult.learning, showFrame);
-  if (!runner?.isBusy()) {
-    editor.state.runningBlockId = showFrame?.action?.blockId || null;
-    editor.render();
-  }
+  editor.state.runningBlockId = showFrame?.action?.blockId || null;
+  editor.render();
 }
 
 function returnToWorkspace(blockId = state.selectedBlockId) {
@@ -632,6 +636,12 @@ async function boot() {
     runner = createRunner({
       elements: {
         run: dom["run-button"],
+        debug: dom["debug-button"],
+        debugPanel: dom["debug-panel"],
+        debugStep: dom["debug-step"],
+        debugPlay: dom["debug-play"],
+        debugSpeed: dom["debug-speed"],
+        debugStatus: dom["debug-status"],
         stop: dom["stop-button"],
         reset: dom["reset-button"],
         hint: dom["run-hint"],

@@ -62,6 +62,7 @@ export function createRunner({
     const busy = isBusy(session);
     const reason = state.runRecovery || gateReason();
     elements.run.disabled = busy || Boolean(reason);
+    if (elements.debug) elements.debug.disabled = elements.run.disabled;
     const canStop = isBusy(session) && !(
       session.phase === "validating" && session.cancelOnAccept
     );
@@ -72,9 +73,104 @@ export function createRunner({
     elements.stateChip.className = `status-chip${
       busy ? " warn" : state.phase === "result" ? " ok" : state.phase === "error" ? " bad" : ""
     }`;
+    updateDebugControls();
   }
 
-  async function run() {
+  function updateDebugControls() {
+    if (!elements.debugPanel) return;
+    const debug = isBusy(session) && !session.disposed ? currentRun?.debug : null;
+    elements.debugPanel.hidden = !debug;
+    if (!debug) return;
+
+    const running = session.phase === "running";
+    const { pending, lastName, completedSteps, playing } = debug;
+    elements.debugStep.setAttribute("aria-disabled", String(!running || !pending || pending.sent || playing));
+    elements.debugPlay.disabled = !running;
+    elements.debugPlay.textContent = playing ? "暂停" : "连续执行";
+    let label;
+    if (session.phase === "validating") {
+      label = "正在准备调试。";
+    } else if (!running) {
+      label = "正在停止调试。";
+    } else if (pending?.sent) {
+      label = `第 ${completedSteps + 1} 步 · 正在执行「${pending.name}」。`;
+    } else {
+      const last = lastName ? `第 ${completedSteps} 步 · 已执行「${lastName}」。` : "";
+      label = last + (pending ? `下一步是「${pending.name}」。` : "") || "正在等待第一个积木。";
+    }
+    if (elements.debugStatus.textContent !== label) elements.debugStatus.textContent = label;
+  }
+
+  function highlightBlock(blockId, reveal = false) {
+    state.runningBlockId = blockId;
+    editor.state.runningBlockId = blockId;
+    if (!reveal || !editor.revealBlock?.(blockId, { select: false })) editor.render();
+  }
+
+  function clearStepTimer() {
+    const debug = currentRun?.debug;
+    if (debug?.timer != null) {
+      window.clearTimeout(debug.timer);
+      debug.timer = null;
+    }
+  }
+
+  function scheduleStep() {
+    clearStepTimer();
+    const debug = currentRun?.debug;
+    if (session.phase !== "running" || !debug?.playing || !debug.pending || debug.pending.sent) return;
+    debug.timer = window.setTimeout(() => advanceStep(), Number(elements.debugSpeed.value));
+  }
+
+  async function advanceStep() {
+    clearStepTimer();
+    const debug = currentRun?.debug;
+    const pending = debug?.pending;
+    if (session.phase !== "running" || session.disposed || !pending || pending.sent) return;
+
+    pending.sent = true;
+    highlightBlock(pending.blockId, true);
+    updateDebugControls();
+    try {
+      await api.stepRun(session.requestId, session.cancelToken, pending.seq, currentRun.studentId);
+    } catch (error) {
+      if (currentRun?.debug !== debug || debug.pending !== pending || session.phase !== "running" || session.disposed) return;
+      pending.sent = false;
+      debug.playing = false;
+      updateDebugControls();
+      toast(error.messageForChild || "这一步没有收到回复，可以再试一次。", true);
+    }
+  }
+
+  function handleDebugEvent(debug, data, block, task) {
+    if (data.seq <= debug.lastSeq) return;
+    debug.lastSeq = data.seq;
+    const name = state.blocksByKind.get(block.kind)?.displayName || "积木";
+    if (data.kind === "block_enter") {
+      debug.pending = { seq: data.seq, blockId: data.blockId, name, sent: false };
+      if (block.kind === "event.start") {
+        void advanceStep();
+        return;
+      }
+      if (debug.completedSteps === 0) highlightBlock(data.blockId, true);
+      scheduleStep();
+    } else if (data.kind === "block_exit") {
+      debug.completedSteps += 1;
+      debug.lastName = name;
+      debug.pending = null;
+      if (elements.objectView && data.stage) {
+        const previous = debug.path.at(-1);
+        if (!previous || previous.x !== data.stage.x || previous.y !== data.stage.y || previous.heading !== data.stage.heading) {
+          debug.path.push(data.stage);
+        }
+        debug.stage = data.stage;
+        updateObjectView(elements.objectView, [data.stage], task, null, null, debug.path);
+      }
+    }
+    updateDebugControls();
+  }
+
+  async function run({ debug = false } = {}) {
     if (!tryBegin(session)) {
       toast("正在运行，先等这一轮结束。");
       return;
@@ -111,7 +207,10 @@ export function createRunner({
       predictionSource: predictionSourceFor(state, ctx.taskId),
       fingerprint: programFingerprint(root),
     });
-    currentRun = { context: runContext, task, studentId };
+    currentRun = {
+      context: runContext, task, studentId,
+      debug: debug ? { playing: false, pending: null, lastSeq: 0, completedSteps: 0, lastName: "", path: [], stage: null, timer: null } : null,
+    };
     state.learningRunRequestId = requestId;
 
     state.lastRunStatus = null;
@@ -137,6 +236,7 @@ export function createRunner({
         courseRef: program.courseRef,
         taskId: task.taskId,
         mode: "demo",
+        ...(debug ? { debug: true } : {}),
         ...(learningContext ? { learningContext } : {}),
       }, studentId);
     } catch (error) {
@@ -192,6 +292,7 @@ export function createRunner({
       elements.liveOutput.hidden = true;
       elements.liveOutput.textContent = "";
     }
+    if (debug && elements.objectView) updateObjectView(elements.objectView, [], task, null, null, []);
     setPhase("running");
     updateControls();
     openStream(streamContext, task, requestId, cancelToken, runContext, root);
@@ -200,12 +301,13 @@ export function createRunner({
     }
   }
 
-  function showResult(task, data, runContext) {
+  function showResult(task, data, runContext, debug = null) {
     state.lastResult = data;
     state.lastRunContext = runContext;
     state.lastResultOwnership = classifyResult({ state, record: runContext });
     if (elements.objectView) {
-      updateObjectView(elements.objectView, data.objects || [], task, data.learning);
+      const objects = data.objects?.length ? data.objects : debug?.stage ? [debug.stage] : [];
+      updateObjectView(elements.objectView, objects, task, data.learning, null, debug?.path);
     }
     renderResult(elements.result, state, task, data, getResultActions());
   }
@@ -238,12 +340,13 @@ export function createRunner({
       if (!data || !data.blockId) {
         return;
       }
-      if (!findBlock(editor.state.root, data.blockId)) {
-        return;
+      const block = findBlock(root, data.blockId);
+      if (!block) return;
+      if (currentRun?.debug) {
+        handleDebugEvent(currentRun.debug, data, block, task);
+      } else {
+        highlightBlock(data.kind === "block_exit" ? null : data.blockId);
       }
-      state.runningBlockId = data.kind === "block_exit" ? null : data.blockId;
-      editor.state.runningBlockId = state.runningBlockId;
-      editor.render();
     });
 
     eventSource.addEventListener("stdout", (message) => {
@@ -282,7 +385,7 @@ export function createRunner({
       } else if (data.status === "completed" && Number.isFinite(stage?.steps)) {
         state.lessonObservation = `${task.title} · 这次角色累计走了 ${stage.steps} 步。`;
       }
-      showResult(task, { ...data, loopBlockId }, runContext);
+      showResult(task, { ...data, loopBlockId }, runContext, currentRun?.debug);
       editor.state.errorBlockId = state.errorBlockId;
       setPhase(data.status !== "completed" ? "error" : "result");
       if (data.success) {
@@ -340,7 +443,7 @@ export function createRunner({
           showResult(currentRun.task, {
             status: snapshot.status,
             error: { messageForChild: "连接中断了，这轮没有收到完整结果。" },
-          }, currentRun.context);
+          }, currentRun.context, currentRun.debug);
         }
         setPhase("error");
         toast("运行连接中断了，可以再试一次。");
@@ -357,6 +460,7 @@ export function createRunner({
   }
 
   function closeStream() {
+    clearStepTimer();
     if (source) {
       source.close();
       source = null;
@@ -424,6 +528,7 @@ export function createRunner({
       return;
     }
     enterCancelling(session);
+    clearStepTimer();
     updateControls();
     try {
       await api.cancelRun(requestId, cancelToken, currentRun?.studentId);
@@ -449,6 +554,7 @@ export function createRunner({
     }
     markDisposed(session);
     closeStream();
+    updateDebugControls();
 
     if (session.phase === "validating") {
       const deadline = Date.now() + 1500;
@@ -502,9 +608,21 @@ export function createRunner({
     refresh();
   }
 
-  elements.run.addEventListener("click", run);
+  elements.run.addEventListener("click", () => run());
   elements.stop.addEventListener("click", stop);
   elements.reset.addEventListener("click", reset);
+  elements.debug?.addEventListener("click", () => run({ debug: true }));
+  elements.debugStep?.addEventListener("click", () => {
+    if (!currentRun?.debug?.playing) advanceStep();
+  });
+  elements.debugPlay?.addEventListener("click", () => {
+    const debug = currentRun?.debug;
+    if (!debug || session.phase !== "running" || session.disposed) return;
+    debug.playing = !debug.playing;
+    scheduleStep();
+    updateDebugControls();
+  });
+  elements.debugSpeed?.addEventListener("change", scheduleStep);
 
   return {
     run,

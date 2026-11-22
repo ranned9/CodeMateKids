@@ -10,7 +10,6 @@ from backend.tutor.classroom import Reply
 
 _FIELDS = {
     "times": ("control.repeat", "重复次数", "次", "它决定循环里的动作会做几轮。"),
-    "steps": ("motion.move", "每次前进的步数", "步", "它决定执行这块前进积木时走多远。"),
     "degrees": ("motion.turn", "转弯角度", "°", "它决定执行这块积木时转多少度。"),
 }
 _NUMBER = r"\d{1,3}|[零一二两三四五六七八九十百]{1,3}"
@@ -48,6 +47,11 @@ def plan_small_edit(message, context, program, selected_id, registry):
 
     blocks = {block["blockId"]: block for block in snapshot_blocks(program)}
     if requested:
+        target = requested["target"]
+        if requested["unit"] == "步" or "步数" in target or (
+            re.search(r"前进|向前走", target) and not re.search(r"次数|重复|循环", target)
+        ):
+            return Reply("「向前走」每次走一步。想调整总步数，可以改重复次数。", "explain"), None
         field, block = _requested_field(requested["target"], requested["unit"], blocks, selected_id)
         value = _integer(requested["value"])
         if block is None or field is None:
@@ -56,7 +60,7 @@ def plan_small_edit(message, context, program, selected_id, registry):
     else:
         candidate = _diagnosed_change(context)
         if candidate is None:
-            text = ("你是卡在重复次数、每次走几步，还是积木怎么接？" if context["run_id"]
+            text = ("你是卡在重复次数，还是积木怎么接？" if context["run_id"]
                     else "先运行一次，让我看看海龟做了什么。你也可以选中一块积木，说说想改哪个数字。")
             return Reply(text, "ask_question", awaiting=True), None
         field, block_id, value = candidate
@@ -93,13 +97,13 @@ def _requested_field(target, unit, blocks, selected_id):
             None,
         )
     selected_field = next((key for key, spec in _FIELDS.items() if selected and selected["kind"] == spec[0]), None)
-    named_fields = [key for key, token in (("times", "次数"), ("steps", "步数"), ("degrees", "角度"))
+    named_fields = [key for key, token in (("times", "次数"), ("degrees", "角度"))
                     if token in target]
     if len(named_fields) > 1:
         return None, None
     name = named_fields[0] if named_fields else None
     if name is None:
-        name = next((key for key, words in (("times", ("重复", "循环")), ("steps", ("前进", "向前走")),
+        name = next((key for key, words in (("times", ("重复", "循环")),
                                            ("degrees", ("转弯", "转个弯"))) if any(word in target for word in words)), None)
     referring_to_selection = any(word in target for word in ("这块", "这个", "这里", "它"))
     field = name or (selected_field if referring_to_selection else None)
@@ -153,6 +157,4 @@ def _diagnosed_change(context):
     pattern = context["pattern"]
     if pattern == "loop_count_mismatch" and target % steps == 0 and structure.get("loop_id"):
         return "times", structure["loop_id"], target // steps
-    if pattern == "move_steps_mismatch" and target % times == 0 and structure.get("move_id"):
-        return "steps", structure["move_id"], target // times
     return None

@@ -33,7 +33,8 @@
             "maxRecursionDepth": {"type": "integer", "minimum": 10, "maximum": 200}
           }
         },
-        "mode": {"const": "demo"}
+        "mode": {"const": "demo"},
+        "debug": {"type": "boolean", "default": false}
       }
     },
     "runResult": {

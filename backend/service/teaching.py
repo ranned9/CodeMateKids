@@ -121,7 +121,7 @@ def _outcome(status: str | None, route_met: bool | None) -> str:
 def structure_facts(roots: list[dict[str, Any]], task: dict[str, Any]) -> dict[str, Any]:
     teaching = task.get("teaching") or {}
     square_task = "square_single_repeat" in task.get("programCriteria", [])
-    report = inspect(roots, teaching.get("suggestedStepsPerMove", 2))
+    report = inspect(roots, teaching.get("suggestedStepsPerMove"))
     return {
         "structure_met": report.structure_met if square_task else None,
         "simple_move_loop": report.simple_move_loop,
@@ -149,7 +149,7 @@ def _verify_square_path(replay: ReplayResult) -> bool | None:
     if not replay.replayable or replay.has_more:
         return None
     edges = [action for action in replay.actions if action["kind"] == "motion.move"]
-    if len(edges) != 4 or any(edge["steps"] != 2 for edge in edges):
+    if len(edges) != 4 or len({edge["steps"] for edge in edges}) != 1:
         return False
     headings = [edge["heading"] for edge in edges]
     angle = (headings[1] - headings[0]) % 360

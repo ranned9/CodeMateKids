@@ -113,6 +113,10 @@ class CancelRequest(ApiModel):
     cancelToken: str
 
 
+class RunStepRequest(CancelRequest):
+    seq: int = Field(ge=1)
+
+
 class SaveProjectRequest(ApiModel):
     program: dict[str, Any]
     courseRef: dict[str, Any]
@@ -206,6 +210,7 @@ class RunSubmitRequest(ApiModel):
     courseRef: dict[str, Any]
     taskId: str
     mode: Literal["demo"] = "demo"
+    debug: bool = False
     learningContext: LearningContext | None = None
 
 class ModelConfigTestRequest(ApiModel):

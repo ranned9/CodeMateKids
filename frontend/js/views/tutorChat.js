@@ -229,7 +229,11 @@ function appendReplyDetails(parent, reply) {
   summary.textContent = "回复详情";
   details.appendChild(summary);
   appendParagraph(details, reply.supportLevel ? `${action} · 提示级别 ${reply.supportLevel}` : action);
-  if (reply.fallbackReason && reply.fallbackReason !== "unconfigured") {
+  if (reply.fallbackReason === "invalid_response") {
+    appendParagraph(details, "模型回复未通过校验，这次使用了本地教学回复。");
+  } else if (reply.fallbackReason === "repeated_question") {
+    appendParagraph(details, "模型重复了上一轮的问题，这次使用了本地教学回复。");
+  } else if (reply.fallbackReason && reply.fallbackReason !== "unconfigured") {
     appendParagraph(details, "模型暂时无法完成这次回答。");
   }
   parent.appendChild(details);

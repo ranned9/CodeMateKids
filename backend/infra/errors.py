@@ -59,7 +59,7 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
         "ai", 200, "现在先使用演示回复继续学习。", True
     ),
     "RUN_IN_PROGRESS": ErrorSpec(
-        "concurrency", 409, "程序正在运行，先等一下或点停止。", True
+        "concurrency", 409, "还有一轮运行没结束。可以稍后重试，或回到发起运行的页面点停止。", True
     ),
     "PREDICTION_INVALID": ErrorSpec(
         "prediction", 422, "先猜一猜角色会动几次，填一个数字吧。", True

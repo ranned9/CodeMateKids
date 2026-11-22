@@ -88,7 +88,7 @@ export class NumberControls {
   create(blockId, fieldName) {
     const element = document.createElement("div");
     element.className = "canvas-number-control";
-    const label = { times: "重复次数", steps: "步数", degrees: "角度", value: "数字的数值" }[fieldName] || fieldName;
+    const label = { times: "重复次数", degrees: "角度", value: "数字的数值" }[fieldName] || fieldName;
     const input = document.createElement("input");
     input.type = "number";
     input.setAttribute("aria-label", label);

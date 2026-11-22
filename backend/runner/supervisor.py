@@ -24,6 +24,7 @@ POLL_INTERVAL_S = 0.02
 CANCEL_GRACE_S = 0.2
 MEMORY_POLL_INTERVAL_S = 0.1
 HANDSHAKE_TIMEOUT_S = 2.0
+DEBUG_IDLE_TIMEOUT_S = 300.0
 
 
 class SupervisorError(RuntimeError):
@@ -215,6 +216,8 @@ def run_program(
     cancel_event: threading.Event,
     on_frame: Callable[[dict[str, Any]], None],
     log_event: Callable[[str, dict[str, Any]], None] | None = None,
+    *,
+    take_step: Callable[[], int | None] | None = None,
 ) -> dict[str, Any]:
     work_dir = tempfile.mkdtemp(prefix="cmk-run-")
     started = time.perf_counter()
@@ -233,6 +236,8 @@ def run_program(
     error_code: dict[str, str | None] = {"value": None}
     forced_kill = False
     handshake_reason = ""
+    paused_at: float | None = None
+    debug_idle = False
 
     try:
         if cancel_event.is_set():
@@ -282,6 +287,8 @@ def run_program(
             },
             "mode": "demo",
         }
+        if take_step is not None:
+            run_frame["debug"] = True
         assert process.stdin is not None
         process.stdin.write(json.dumps(run_frame, ensure_ascii=False) + "\n")
         process.stdin.flush()
@@ -295,6 +302,8 @@ def run_program(
             if frame is not None:
                 frame_type = frame.get("type")
                 if frame_type == "event":
+                    if take_step is not None and frame.get("kind") == "block_enter":
+                        paused_at = time.perf_counter()
                     collected_events.append(frame)
                     on_frame(frame)
                 elif frame_type == "stdout":
@@ -315,12 +324,26 @@ def run_program(
                 break
 
             now = time.perf_counter()
-            if now >= deadline:
+            if (paused_at if paused_at is not None else now) >= deadline:
                 status = "timeout"
                 error_code["value"] = "RUN_TIMEOUT"
                 forced_kill = True
                 _fast_kill(process)
                 break
+
+            if not cancel_event.is_set() and paused_at is not None and take_step is not None:
+                step = take_step()
+                if step is not None:
+                    try:
+                        process.stdin.write(json.dumps({"type": "step", "seq": step}) + "\n")
+                        process.stdin.flush()
+                    except (OSError, ValueError):
+                        pass  # 进程退出后由以下逻辑读取终态。
+                    deadline += now - paused_at
+                    paused_at = None
+                elif now - paused_at >= DEBUG_IDLE_TIMEOUT_S:
+                    debug_idle = True
+                    cancel_event.set()
 
             if cancel_event.is_set():
                 if cancel_deadline is None:
@@ -417,6 +440,8 @@ def run_program(
         if result.get("error") is None and error_code["value"]:
             block_id = collected_events[-1].get("blockId") if collected_events else None
             result["error"] = error_object(str(error_code["value"]), block_id)
+        if debug_idle and status == "cancelled":
+            result["error"] = error_object("RUN_CANCELLED", message="暂停太久啦，可以重新开始调试。")
         if log_event is not None:
             summary = stderr_digest.summary() if stderr_digest is not None else ""
             log_event(

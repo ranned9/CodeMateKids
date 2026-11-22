@@ -131,20 +131,10 @@
           "required": false
         }
       ],
-      "fields": [
-        {
-          "name": "steps",
-          "label": "步数",
-          "valueType": "integer",
-          "acceptsNumberBlock": true,
-          "required": true,
-          "defaultValue": 1,
-          "range": {"min": 1, "max": 100}
-        }
-      ],
+      "fields": [],
       "scopeRule": "none",
       "targetAnchor": "python.call",
-      "blockedHint": "点「步数」或拖入数字，让角色向前走。",
+      "blockedHint": "让角色朝当前方向走一步。",
       "runnable": true,
       "testCaseRefs": ["TC-MOVE-01", "TC-MOVE-NEG-EMPTY"]
     },

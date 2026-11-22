@@ -51,7 +51,7 @@ function previewCode(root, definitions) {
           lines.push(`${pad}    pass`);
         }
       } else if (current.kind === "motion.move") {
-        lines.push(`${pad}stage.move(${numberInputValue(current.inputs?.steps) ?? 0})`);
+        lines.push(`${pad}stage.move(${numberInputValue(current.inputs?.steps) ?? 1})`);
       } else if (current.kind === "motion.turn") {
         lines.push(`${pad}stage.turn(${numberInputValue(current.inputs?.degrees) ?? 90})`);
       } else if (current.kind === "look.say") {
@@ -198,12 +198,13 @@ export class EditorView {
     });
   }
 
-  revealBlock(blockId) {
+  revealBlock(blockId, { select = true } = {}) {
     const node = (this.layout.nodes || []).find((item) => item.blockId === blockId);
     if (!node) {
       return false;
     }
-    const rect = node.rect;
+    const rect = select ? node.rect : this.layout.sections?.[blockId]?.header || node.rect;
+    const { scrollX, scrollY } = this;
     const maxX = Math.max(0, this.layout.contentWidth - this.width + 24);
     const maxY = Math.max(0, this.layout.height - this.height + 24);
     if (rect.y < this.scrollY) {
@@ -216,8 +217,12 @@ export class EditorView {
     } else if (rect.x + rect.w > (this.scrollX ?? 0) + this.width) {
       this.scrollX = Math.min(maxX, rect.x + rect.w - this.width + 16);
     }
-    this.state.selectedBlockId = blockId;
-    this.refresh();
+    if (select) this.state.selectedBlockId = blockId;
+    if (select || scrollX !== this.scrollX || scrollY !== this.scrollY) {
+      this.refresh();
+    } else {
+      this.render();
+    }
     return true;
   }
 
@@ -641,7 +646,7 @@ export class EditorView {
       return false;
     }
     const block = findBlock(this.state.root, blockId);
-    const eligibleField = { "control.repeat": "times", "motion.move": "steps", "motion.turn": "degrees" }[block?.kind];
+    const eligibleField = { "control.repeat": "times", "motion.turn": "degrees" }[block?.kind];
     if (!eligibleField || field !== eligibleField || numberInputValue(block.inputs?.[field]) !== before) {
       return false;
     }

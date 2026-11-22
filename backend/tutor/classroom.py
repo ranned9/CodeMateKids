@@ -22,10 +22,23 @@ HELP_LEVELS = {
 
 _BLOCK_EXPLANATIONS = {
     "control.repeat": "重复积木会把里面的动作再做几轮。放在它外面的动作只按外面的顺序执行。",
-    "motion.move": "前进积木让海龟朝当前方向走。积木里的数字表示这一次前进走多远。",
+    "motion.move": "「向前走」让海龟朝当前方向走一步。",
     "motion.turn": "转弯积木改变海龟面向的方向。接下来的前进会朝新的方向走。",
     "event.start": "点击运行后，海龟会从开始积木接着往下做。",
-    "value.number": "数字积木给旁边的指令提供一个数，例如重复次数或每次前进的步数。",
+    "value.number": "数字积木给旁边的指令提供一个数，例如重复次数或转弯角度。",
+    "look.say": "「说句话」让海龟在舞台上说出你填的文字。",
+    "text.print": "「显示结果」把插口里的值写到运行详情的输出区。",
+    "value.calc": "运算积木会用选好的运算符计算两个数，把算出的值交给外面的积木。",
+}
+_BLOCK_NAMES = {
+    "event.start": r"当开始|开始积木",
+    "control.repeat": r"重复|循环",
+    "motion.move": r"向前走|前进积木",
+    "motion.turn": r"转个弯|转弯积木",
+    "look.say": r"说句话|说话积木",
+    "text.print": r"显示结果|打印积木",
+    "value.number": r"数字积木|数值积木",
+    "value.calc": r"运算积木|计算积木",
 }
 
 
@@ -115,14 +128,14 @@ def local_reply(message: str, context: dict) -> Reply:
         if type(facts.get("moves")) is int and type(facts.get("actualSteps")) is int:
             return Reply(
                 f"这次前进了 {facts['moves']} 次，一共走了 {facts['actualSteps']} 步。"
-                "每执行一块前进积木算一次，每一次可以走好几步。",
+                "前进次数数的是执行了几回前进积木，总步数数的是走过多少格。",
                 "explain",
             )
         return Reply("前进次数数的是执行了几回前进积木。总步数数的是这些前进一共走了多远。", "explain")
 
     if signal == "confused_counts":
         if "show_execution" in controls:
-            return Reply("我们回放看看。前进积木执行一次以后，海龟会走它设定的那段距离。",
+            return Reply("我们回放看看。注意每一次前进开始和结束时，海龟在什么位置。",
                          "show_execution", "verifiedReplay")
         return _count_reply("moves", facts)
     if signal == "distinguished_counts":
@@ -143,16 +156,20 @@ def local_reply(message: str, context: dict) -> Reply:
         if previous:
             return _ask("接着看刚才那一步。你刚改了哪块积木？")
 
+    if re.search(r"这题.{0,6}(做什么|目标|要求)|(?:任务|目标|题目).{0,4}(是什么|做什么|要求)", message):
+        return Reply(context["objective"], "explain")
+    if re.search(r"什么|干嘛|作用|怎么|如何|用法|解释", message):
+        named = [kind for kind, names in _BLOCK_NAMES.items() if re.search(names, message)]
+        if len(named) == 1:
+            return Reply(_BLOCK_EXPLANATIONS[named[0]], "explain")
     if selected in _BLOCK_EXPLANATIONS and re.search(r"这|它|干嘛|意思|作用|数字|怎么|为什么", message):
         return Reply(_BLOCK_EXPLANATIONS[selected], "explain")
-    if re.search(r"(重复|循环).{0,7}(什么|意思|作用|怎么用)|什么是(重复|循环)", message):
-        return Reply(_BLOCK_EXPLANATIONS["control.repeat"], "explain")
     if re.search(r"前进.{0,4}(几次|次数)|移动次数", message):
         return _count_reply("moves", facts)
     if re.search(r"一共.{0,4}步|总步数", message):
         return _count_reply("steps", facts)
     if re.search(r"例子|类比|换个说法", message):
-        return Reply("想象盖印章。印一次算一次动作，每次印出的图案可以有好几格。海龟前进也是这样。",
+        return Reply("想象跳格子。每执行一次「向前走」，海龟就走一格。重复就是多走几格。",
                      "analogy")
     if re.search(r"(没|不|没有)动|没反应", message):
         if not context["run_id"]:
@@ -167,8 +184,8 @@ def local_reply(message: str, context: dict) -> Reply:
     direct = bool(re.search(r"直接讲|讲一下|解释|没懂|不懂", message))
     if memory == "check_counts" and pattern in ("not_run", "prediction_mismatch", "unknown"):
         if direct:
-            return Reply("每执行一次前进积木算一次前进，走的步数看这块积木里的数字。", "explain")
-        return _ask("我们先看每次前进会走几步，再猜这块积木会执行几次。你会先数哪一个？")
+            return Reply("每执行一次「向前走」，海龟就走一步。数一数循环里会执行几次前进。", "explain")
+        return _ask("每次前进走一步。你能从重复积木猜出海龟会走几步吗？")
     if memory == "independent" and pattern in ("not_run", "goal_met") and not direct:
         return _ask("你可以先用自己的方法预测，再用运行检查。你打算先核对哪个数字？")
     if memory == "supported_practice" and pattern == "not_run" and not direct:
@@ -185,13 +202,24 @@ def local_reply(message: str, context: dict) -> Reply:
     if direct:
         if context["goal_kind"] == "square":
             return Reply("每走完一条边就需要转弯。把前进和转弯放在同一个循环里，就能重复这一组动作。", "explain")
-        return Reply("重复次数决定做几回，前进积木里的数字决定每回走多远。先看看你改的是哪一个。", "explain")
+        return Reply("「向前走」每次走一步。重复积木上的数字决定这组动作做几回。", "explain")
     if pattern == "goal_met":
         return _ask("这次达到任务目标了。你能说说是哪组动作在重复吗？")
     if pattern == "program_invalid":
         return _ask("这组积木还有一处没接好或参数不合适。你现在想先看哪块？")
-    if context["run_id"]:
-        return _ask("我们对照刚才的运行看看。你想先弄明白海龟走了多远，还是积木执行了几次？")
-    if re.search(r"算|提示|帮|怎么做|怎么办|咋", message):
-        return _ask("可以先找出要反复做的动作。你觉得哪块积木应该放进重复积木里？")
-    return _ask("你想一起看看某块积木、这题要做什么，还是刚才的运行？")
+    return _contextual_hint(context, prior_question)
+
+
+def _contextual_hint(context: dict, previous_text: str) -> Reply:
+    candidates = []
+    selected = _BLOCK_EXPLANATIONS.get(context["selected_kind"])
+    if selected:
+        candidates.append(Reply(selected, "explain"))
+    if type(context["facts"].get("actualSteps")) is int:
+        candidates.append(_count_reply("steps", context["facts"]))
+    if context["structure"].get("loop_body_has_move") and "loopBlock" in context["block_targets"]:
+        candidates.append(Reply("向前走已经放进循环。可以看看重复积木上的次数，数数它会执行几回。",
+                                "point_to_block", "loopBlock"))
+    candidates.append(Reply(context["objective"], "hint"))
+    return next((reply for reply in candidates if reply.message != previous_text),
+                _ask("点选一块你想了解的积木，我可以从它的作用讲起。"))

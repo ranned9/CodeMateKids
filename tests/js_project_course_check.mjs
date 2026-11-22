@@ -286,14 +286,10 @@ assert.equal(editor.deleteBlock(countId), true);
 assert.equal(state.root.next.inputs.times, 4);
 
 const moveId = state.root.next.body[0].blockId;
-assert.equal(editor.numberControls.controls.has(moveId), true);
-editor.selectBlock(moveId);
-assert.equal(editor.insertFromToolbox("value.number"), true);
-const stepsId = state.selectedBlockId;
-editor.numberControls.controls.get(stepsId).increase.click();
-editor.commitFieldValue(stepsId, "value", "2.5");
-assert.equal(state.root.next.body[0].inputs.steps.inputs.value, 2);
-assert.match(element("code-preview-text").textContent, /stage\.move\(2\)/);
+assert.equal(editor.numberControls.controls.has(moveId), false);
+assert.equal(editor.layout.targets.some((target) => target.id === `expr:${moveId}.steps`), false);
+assert.deepEqual(state.root.next.body[0].inputs, {});
+assert.match(element("code-preview-text").textContent, /stage\.move\(1\)/);
 
 editor.selectBlock(moveId);
 assert.equal(editor.insertFromToolbox("motion.turn"), true);

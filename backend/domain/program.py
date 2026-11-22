@@ -16,6 +16,12 @@ MAX_STRING_LENGTH = 120
 MAX_STACK_X = 4096
 MAX_STACK_Y = 8192
 
+# 旧作品和旧客户端仍可执行已保存的距离，新版积木没有这个输入。
+_LEGACY_MOVE_STEPS_FIELD = {
+    "name": "steps", "valueType": "integer", "acceptsNumberBlock": True,
+    "required": True, "range": {"min": 1, "max": 100},
+}
+
 ALLOWED_PROGRAM_KEYS = {"format", "formatVersion", "target", "courseRef", "root", "metadata"}
 ALLOWED_NODE_KEYS = {"blockId", "kind", "inputs", "body", "next", "unknown"}
 ALLOWED_TARGET_KEYS = {"language", "version"}
@@ -237,12 +243,15 @@ def _validate_node(
     inputs = node.get("inputs")
     if not isinstance(inputs, dict):
         raise ProgramError("PROGRAM_SCHEMA_INVALID", "积木参数结构不对。", block_id)
-    valid_field_names = {str(field["name"]) for field in definition.fields}
+    fields = definition.fields
+    if kind == "motion.move" and "steps" in inputs and definition.field("steps") is None:
+        fields = [*fields, _LEGACY_MOVE_STEPS_FIELD]
+    valid_field_names = {str(field["name"]) for field in fields}
     for key in inputs:
         if key not in valid_field_names:
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "积木参数不认识。", block_id)
 
-    for field in definition.fields:
+    for field in fields:
         name = str(field["name"])
         value = inputs.get(name)
         if field.get("required") and (value is None or value == ""):
@@ -279,6 +288,10 @@ def number_input_value(value: Any) -> Any:
         return value
     nested = (value.get("inputs") or {}).get("value")
     return int(nested) if type(nested) is float and nested.is_integer() else nested
+
+
+def move_step_count(node: dict[str, Any]) -> int:
+    return number_input_value((node.get("inputs") or {}).get("steps", 1))
 
 
 def _validate_field_value(

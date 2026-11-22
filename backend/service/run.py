@@ -10,7 +10,7 @@ from threading import Thread
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Generator
 
 from backend.domain.program import ProgramError, evaluate_criteria, program_roots, validate_program
 from backend.infra.config import Settings
@@ -28,6 +28,8 @@ from backend.session.store import SessionStore
 from backend.tutor.enums import Support
 
 RUN_RETENTION_S = 300
+DEBUG_CONNECT_TIMEOUT_S = 10
+STREAM_KEEP_ALIVE_S = 1
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 OUTCOME_BY_STATUS = {
     "completed": "succeeded",
@@ -73,11 +75,25 @@ class RunContext:
     result: dict[str, Any] | None = None
     stderr_summary: str = ""
     last_block_id: str | None = None
+    debug: bool = False
+    waiting_step: int | None = None
+    pending_step: int | None = None
+    stream_clients: int = 0
 
     def publish(self, event_name: str, data: dict[str, Any]) -> None:
         with self.condition:
+            if self.debug and event_name == "event" and data["kind"] == "block_enter":
+                self.waiting_step = data["seq"]
             self.frames.append({"id": len(self.frames) + 1, "event": event_name, "data": data})
             self.condition.notify_all()
+
+    def take_step(self) -> int | None:
+        with self.condition:
+            if not self.stream_clients and time.time() - self.created_at >= DEBUG_CONNECT_TIMEOUT_S:
+                self.cancel_event.set()
+                return None
+            seq, self.pending_step = self.pending_step, None
+            return seq
 
     def finish(self) -> None:
         with self.condition:
@@ -182,6 +198,7 @@ class RunManager:
                 prediction=prediction,
                 support=support,
                 hint_level=hint_level,
+                debug=bool(payload.get("debug")),
             )
             self._runs[request_id] = context
             self._active_id = request_id
@@ -229,15 +246,10 @@ class RunManager:
             if frame_type == "event":
                 if frame.get("blockId"):
                     context.last_block_id = str(frame.get("blockId"))
-                context.publish(
-                    "event",
-                    {
-                        "seq": frame.get("seq"),
-                        "blockId": frame.get("blockId"),
-                        "kind": frame.get("kind"),
-                        "timestampMs": frame.get("timestampMs"),
-                    },
-                )
+                event = {key: frame.get(key) for key in ("seq", "blockId", "kind", "timestampMs")}
+                if context.debug and "stage" in frame:
+                    event["stage"] = frame["stage"]
+                context.publish("event", event)
             elif frame_type == "stdout":
                 context.publish("stdout", {"seq": frame.get("seq"), "text": frame.get("text")})
 
@@ -254,6 +266,7 @@ class RunManager:
                 context.cancel_event,
                 on_frame,
                 on_diagnostic,
+                **({"take_step": context.take_step} if context.debug else {}),
             )
             success, failures = evaluate_criteria(context.task_snapshot, result.get("objects", []))
             structure = None
@@ -306,10 +319,12 @@ class RunManager:
         self._publish_terminal_once(context, result)
 
     def _publish_terminal_once(self, context: RunContext, result: dict[str, Any]) -> bool:
-        with context.condition:
+        with self._lock, context.condition:
             if context.result is not None:
                 return False
             context.result = result
+            if self._active_id == context.request_id:
+                self._active_id = None
             context.frames.append(
                 {"id": len(context.frames) + 1, "event": "result", "data": result}
             )
@@ -392,7 +407,7 @@ class RunManager:
             interpretation_text=interpretation,
             confidence=confidence,
             alternatives=["操作还不熟练", "可能没看清任务目标", "可能只是这次数错了"],
-            follow_up="下一次换一个步数，再先预测再运行",
+            follow_up="下一次调整重复次数，再预测和运行",
             request_id=context.request_id,
         )
         if context.session.student_id and context.learning_key:
@@ -459,50 +474,61 @@ class RunManager:
     def snapshot(self, request_id: str, *, student_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
             context = self._runs.get(request_id)
-        if context is None or context.student_id != student_id:
-            return None
-        result = context.result or {}
-        if context.finished and not result:
+            if context is None or context.student_id != student_id:
+                return None
+            result = context.result or {}
+            finished = context.finished or context.result is not None
+        if finished and not result:
             status = "crashed"
         else:
             status = str(result.get("status") or "running")
         return {
             "requestId": request_id,
-            "finished": context.finished,
+            "finished": finished,
             "status": status,
             "errorCategory": (result.get("error") or {}).get("category"),
         }
 
-    def stream(self, request_id: str, last_event_id: int = 0, *, student_id: str | None = None) -> Iterator[str]:
+    def stream(self, request_id: str, last_event_id: int = 0, *, student_id: str | None = None) -> Generator[str, None, None]:
         with self._lock:
             context = self._runs.get(request_id)
         if context is None or context.student_id != student_id:
             raise ApiError("RUN_NOT_FOUND")
 
-        def generator() -> Iterator[str]:
+        def generator() -> Generator[str, None, None]:
             index = 0
-            while True:
+            with context.condition:
+                context.stream_clients += 1
+            try:
+                while True:
+                    with context.condition:
+                        if index >= len(context.frames) and not context.finished:
+                            context.condition.wait(timeout=STREAM_KEEP_ALIVE_S)
+                        frames = context.frames[index:]
+                        finished = context.finished
+                    for frame in frames:
+                        index += 1
+                        if frame["id"] <= last_event_id:
+                            continue
+                        payload = json.dumps(frame["data"], ensure_ascii=False)
+                        yield (
+                            f"id: {frame['id']}\n"
+                            f"event: {frame['event']}\n"
+                            f"data: {payload}\n\n"
+                        )
+                    if finished:
+                        break
+                    if not frames:
+                        yield ": keep-alive\n\n"
+            finally:
                 with context.condition:
-                    while index >= len(context.frames) and not context.finished:
-                        context.condition.wait(timeout=0.2)
-                    frames = context.frames[index:]
-                    finished = context.finished
-                for frame in frames:
-                    index += 1
-                    if frame["id"] <= last_event_id:
-                        continue
-                    payload = json.dumps(frame["data"], ensure_ascii=False)
-                    yield (
-                        f"id: {frame['id']}\n"
-                        f"event: {frame['event']}\n"
-                        f"data: {payload}\n\n"
-                    )
-                if finished and index >= len(context.frames):
-                    break
+                    context.stream_clients -= 1
+                    if context.debug and not context.stream_clients and context.result is None:
+                        context.cancel_event.set()
 
         return generator()
 
-    def cancel(self, request_id: str, cancel_token: str, *, student_id: str | None = None) -> dict[str, Any]:
+    def _controlled_run(self, request_id: str, cancel_token: str, student_id: str | None) -> RunContext:
         validate_request_id(request_id)
         with self._lock:
             context = self._runs.get(request_id)
@@ -510,7 +536,20 @@ class RunManager:
             raise ApiError("RUN_NOT_FOUND")
         if context.cancel_token != cancel_token:
             raise ApiError("CANCEL_TOKEN_MISMATCH")
-        if context.finished:
+        return context
+
+    def step(self, request_id: str, cancel_token: str, seq: int, *, student_id: str | None = None) -> dict[str, Any]:
+        context = self._controlled_run(request_id, cancel_token, student_id)
+        with context.condition:
+            if context.result is not None or context.cancel_event.is_set() or context.waiting_step != seq:
+                return {"accepted": False}
+            context.waiting_step = None
+            context.pending_step = seq
+            return {"accepted": True}
+
+    def cancel(self, request_id: str, cancel_token: str, *, student_id: str | None = None) -> dict[str, Any]:
+        context = self._controlled_run(request_id, cancel_token, student_id)
+        if context.finished or context.result is not None:
             return {"requestId": request_id, "status": "already_finished"}
         context.cancel_event.set()
         return {"requestId": request_id, "status": "cancelling"}

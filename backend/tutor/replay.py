@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.domain.program import number_input_value
+from backend.domain.program import move_step_count, number_input_value
 from backend.runner.runtime_api import Stage
 from backend.runner.protocol import MAX_EVENTS
 
@@ -112,7 +112,7 @@ def analyze(
         if kind not in (MOVE_KIND, TURN_KIND):
             continue
         parameter = "steps" if kind == MOVE_KIND else "degrees"
-        amount = number_input_value((node.get("inputs") or {}).get(parameter))
+        amount = move_step_count(node) if kind == MOVE_KIND else number_input_value((node.get("inputs") or {}).get(parameter))
         if type(amount) is not int:
             return ReplayResult("unavailable", reason="unknown_motion_amount")
         if kind == MOVE_KIND:

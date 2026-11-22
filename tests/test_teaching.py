@@ -196,7 +196,7 @@ def test_api_tutors_with_current_run_and_updates_after_edit(client, app) -> None
 
 @pytest.mark.parametrize("times,steps,outside,pattern", [
     (2, 4, True, "action_outside_loop"),
-    (3, 1, False, "move_steps_mismatch"),
+    (6, 4, False, "move_steps_mismatch"),
 ])
 def test_api_distinguishes_other_loop_errors(client, times, steps, outside, pattern) -> None:
     scope = _learning_scope(client, "variant")
@@ -215,7 +215,7 @@ def test_api_square_checks_structure_and_summarizes_help(client) -> None:
     chain = None
     for index in range(4):
         turn = node(f"turn-{index}", "motion.turn", {"degrees": 90}, nxt=chain)
-        chain = node(f"move-{index}", "motion.move", {"steps": 2}, nxt=turn)
+        chain = node(f"move-{index}", "motion.move", {}, nxt=turn)
     unrolled = program(node("b-start", "event.start", {}, nxt=chain), "transfer-square")
     result = _run(client, scope, unrolled, "run-square-unrolled", _predict(client, scope, unrolled, 4))
     assert result["success"] is False
@@ -223,9 +223,12 @@ def test_api_square_checks_structure_and_summarizes_help(client) -> None:
     assert result["learning"]["pattern"] == "square_loop_structure"
     hint = _hint(client, scope, unrolled, result["requestId"])
 
-    result = _run(client, scope, attempt, "run-square-assisted", _predict(client, scope, attempt, 4), [hint["requestId"]])
+    default_step = deepcopy(attempt)
+    default_step["root"]["next"]["body"][0]["inputs"] = {}
+    result = _run(client, scope, default_step, "run-square-assisted", _predict(client, scope, default_step, 4), [hint["requestId"]])
     assert result["success"] is True and result["learning"]["structureMet"] is True
     assert len(result["learning"]["replay"]["actions"]) == 8
+    assert result["objects"][0]["steps"] == 4
     summary = client.get("/api/v1/session/summary").json()["data"]
     assert summary["transfer"]["status"] == "completed" and summary["transfer"]["support"] == "assisted"
 

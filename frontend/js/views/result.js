@@ -206,21 +206,24 @@ function updatePredictionCompare(summary, prediction) {
   }
 }
 
-export function updateObjectView(elements, objects, task = null, learning = null, replayFrame = null) {
+export function updateObjectView(elements, objects, task = null, learning = null, replayFrame = null, debugPath = null) {
   const stage = (objects || []).find((item) => item.id === "stage");
   const square = task?.teaching?.goalKind === "square";
+  const showPath = square || debugPath?.some((point) => point.heading !== 0);
+  const actions = debugPath ?? learning?.replay?.actions ?? [];
   if (elements.track) elements.track.hidden = square;
-  if (elements.path) elements.path.hidden = !square;
-  if (square && elements.path) {
-    const actions = learning?.replay?.actions || [];
+  if (elements.path) elements.path.hidden = !showPath;
+  if (showPath && elements.path) {
     const visible = replayFrame ? actions.slice(0, replayFrame.index) : actions;
-    const endpoint = replayFrame ? replayFrame.action : visible.at(-1) || stage;
+    const endpoint = replayFrame ? replayFrame.action : debugPath ? stage : visible.at(-1) || stage;
     drawStagePath(elements.path, actions, visible, endpoint);
+  }
+  if (square && elements.path) {
     const status = replayFrame ? "正在分步查看。" : stage
-      ? `动了 ${stage.moves} 次，累计走了 ${stage.steps} 步。当前位置（${stage.x}，${stage.y}），朝向 ${stage.heading}°。`
+      ? `动了 ${stage.moves} 次，累计走了 ${stage.steps} 步。当前位置（${stage.x}，${stage.y}），朝向 ${stage.heading}°${speech(stage)}。`
       : "海龟在起点。";
     const traceStatus = !replayFrame && stage && !actions.length && stage.moves > 0
-      ? "这次没有可核对的完整路线。" : !replayFrame && learning?.replay?.hasMore ? "舞台显示路线的前一部分。" : "";
+      ? "这次没有可核对的完整路线。" : !replayFrame && !debugPath && learning?.replay?.hasMore ? "舞台显示路线的前一部分。" : "";
     elements.meta.textContent = `${status}${traceStatus}`;
     return;
   }
@@ -263,13 +266,18 @@ export function updateObjectView(elements, objects, task = null, learning = null
     return;
   }
   elements.actor.style.left = `${track.actorPosition}px`;
-  elements.actor.style.transform = display.heading === 180 ? "scaleX(-1)" : "none";
+  elements.actor.style.transform = {
+    90: "rotate(-90deg)", 180: "scaleX(-1)", 270: "rotate(90deg)",
+  }[display.heading] || "none";
   if (elements.track) elements.track.scrollLeft = track.scrollLeft;
   const overflow = track.overflowLabel ? `（${track.overflowLabel}）` : "";
   const moves = Number.isFinite(display.moves) ? `动了 ${display.moves} 次，` : "";
-  elements.meta.textContent = `${moves}累计走了 ${display.steps} 步${overflow}，朝向 ${display.heading}°${
-    display.said ? `，说：“${display.said}”` : ""
-  }。`;
+  const position = debugPath ? `，位置（${display.x}，${display.y}）` : "";
+  elements.meta.textContent = `${moves}累计走了 ${display.steps} 步${overflow}${position}，朝向 ${display.heading}°${speech(display)}。`;
+}
+
+function speech(stage) {
+  return stage.said ? `，说：“${stage.said}”` : "";
 }
 
 function drawStagePath(canvas, actions, visible, endpoint) {

@@ -396,6 +396,13 @@ button[aria-busy="true"] { cursor: progress; }
 
 .control-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .control-panel .hint-text { margin: var(--space-2) 0 0; }
+.debug-panel { margin-top: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.debug-panel .control-row { align-items: center; }
+.debug-speed { display: flex; align-items: center; gap: var(--space-2); }
+.debug-speed, .debug-status { font-size: var(--font-small); }
+.debug-speed select { min-height: var(--control-h); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; }
+.debug-status { margin: var(--space-2) 0 0; }
+.debug-panel button[aria-disabled="true"] { opacity: .55; cursor: default; }
 .prediction-box { margin-top: var(--space-3); font-size: var(--font-body); }
 .prediction-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .prediction-row input { width: 76px; min-height: var(--control-h); padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; }
@@ -414,6 +421,7 @@ button[aria-busy="true"] { cursor: progress; }
   border-radius: 10px;
   background: #f1fbf8;
 }
+.stage-track:not([hidden]) + .stage-path:not([hidden]) { margin-top: var(--space-2); }
 
 .stage-track {
   max-width: 100%;
@@ -434,7 +442,7 @@ button[aria-busy="true"] { cursor: progress; }
   bottom: 17px;
   translate: -50% 0;
   font-size: 30px;
-  transition: transform 220ms ease;
+  transition: left 180ms ease, transform 180ms ease;
 }
 .object-meta { font-size: var(--font-small); color: var(--ink-soft); margin-top: 6px; }
 

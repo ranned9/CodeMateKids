@@ -119,6 +119,9 @@ def classify(facts: Facts) -> str:
             return Pattern.ACTION_OUTSIDE_LOOP.value
         suggested = facts.suggestedStepsPerMove
         if facts.repeatTimes is not None and suggested:
+            current_steps = facts.stepsPerMove
+            if suggested == 1 and current_steps and facts.targetSteps % current_steps == 0:
+                return Pattern.LOOP_COUNT_MISMATCH.value
             expected_rounds = facts.targetSteps / suggested
             if facts.repeatTimes != expected_rounds:
                 if facts.stepsPerMove == suggested:

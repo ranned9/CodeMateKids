@@ -137,6 +137,7 @@ def test_explicit_edit_rejects_ambiguous_or_invalid_commands(client, app):
         ("three", "把重复次数改成零", "repeat"),
         ("four", "把次数和步数改成三", "repeat"),
         ("five", "把重复次数改成三次会怎样？", "repeat"),
+        ("six", "把前进步数改成三步", "move"),
     ):
         assert "edit" not in _chat(client, app, scope, snapshot, turn, message, selected=selected)
 
@@ -174,6 +175,37 @@ def test_model_receives_sanitized_history_across_program_versions(client, app):
     school = _chat(client, app, scope, after, "d", "我在示例小学上学")
     assert school["mode"] == "mock"
     assert len(contexts) == 2
+
+
+def test_chat_fallback_answers_the_question_when_model_repeats_or_fails(client, app):
+    repeated_question = "你想先看积木，还是刚才的运行？"
+
+    def upstream(request, *_):
+        context = json.loads(request["messages"][1]["content"])
+        if context.get("connectionTest"):
+            data = {"status": "ok"}
+        elif context["message"] == "这题要做什么？":
+            data = {"message": "缺少动作字段"}
+        else:
+            data = {
+                "message": repeated_question, "action": "ask_question", "targetRef": None,
+                "awaitingAnswer": True, "factIdsUsed": [], "observation": None,
+            }
+        return json.dumps({"choices": [{"message": {"content": json.dumps(data)}, "finish_reason": "stop"}]}).encode()
+
+    _enable_web_model(client, app, upstream)
+    scope = _scope(client, "main", "ws-fallback")
+    snapshot = _program("main", 2, 1)
+    first = _chat(client, app, scope, snapshot, "first", "我能问一下吗？")
+    assert first["mode"] == "model" and first["message"] == repeated_question
+
+    second = _chat(client, app, scope, snapshot, "second", "转个弯怎么用？", reply_to="first")
+    assert second["mode"] == "mock" and second["fallbackReason"] == "repeated_question"
+    assert second["action"] == "explain" and "改变" in second["message"]
+
+    third = _chat(client, app, scope, snapshot, "third", "这题要做什么？")
+    assert third["mode"] == "mock" and third["fallbackReason"] == "invalid_response"
+    assert third["action"] == "explain" and "累计走 4 步" in third["message"]
 
 
 def test_profiles_isolate_run_evidence_and_adapt_after_restart(client, app, settings):
@@ -216,7 +248,7 @@ def test_profiles_isolate_run_evidence_and_adapt_after_restart(client, app, sett
         prompt = "这个要怎么算？"
         first = _chat(fresh, restarted, next_scope, variant_program, "turn-a", prompt, student=helped)
         second = _chat(fresh, restarted, next_scope, variant_program, "turn-a", prompt, student=independent)
-        assert "每次前进会走几步" in first["message"]
+        assert "每次前进走一步" in first["message"]
         assert "用自己的方法预测" in second["message"]
 
 

@@ -17,8 +17,8 @@
       "learnerChoice": "more_hint",
       "level": 2,
       "action": "hint",
-      "message": "先看看每次走几步，再想想重复多少次能走 4 步。",
-      "nextStep": "改一个数字，运行后数一数",
+      "message": "「向前走」每次走一步，想想重复多少次能走 4 步。",
+      "nextStep": "调整重复次数，运行后数一数",
       "uncertainty": "也许你想的是另一种走法。"
     },
     {
@@ -59,7 +59,7 @@
       "action": "analogy",
       "message": "重复次数乘每次走的步数，就是总步数。先算一算现在一共走了几步。",
       "nextStep": "用次数乘以步数算一算",
-      "uncertainty": "我不确定你想先改次数还是步数。"
+      "uncertainty": "我还不确定每一轮执行了几次前进。"
     },
     {
       "taskId": "main",
@@ -117,7 +117,7 @@
       "learnerChoice": "hint",
       "level": 1,
       "action": "hint",
-      "message": "先找出每次走几步，再想想重复几次能走够目标步数。",
+      "message": "「向前走」每次走一步。想想重复几次能走够目标步数。",
       "nextStep": "把重复次数改成目标步数试试",
       "uncertainty": "也许你已经知道答案，只是想确认。"
     },
@@ -147,8 +147,8 @@
       "learnerChoice": "hint",
       "level": 1,
       "action": "ask_question",
-      "message": "每次走 2 步，要走 6 步，需要重复几次？",
-      "nextStep": "想一想 2 和 6 的关系",
+      "message": "每次走 1 步，要走 6 步，需要重复几次？",
+      "nextStep": "数一数需要执行几次向前走",
       "uncertainty": "我还不知道你算出了几次。"
     },
     {
@@ -157,9 +157,9 @@
       "learnerChoice": "more_hint",
       "level": 2,
       "action": "break_down",
-      "message": "把 6 步分一分：2 步、2 步、2 步，一共分成几段？",
-      "nextStep": "把重复次数改成分段的数量",
-      "uncertainty": "你也可以换一种每次步数。"
+      "message": "每多重复一次，小海龟就多走一步。它还需要走几步？",
+      "nextStep": "对照目标调整重复次数",
+      "uncertainty": "运行后可以一起数一数。"
     },
     {
       "taskId": "variant",
@@ -187,9 +187,9 @@
       "learnerChoice": "example",
       "level": 1,
       "action": "analogy",
-      "message": "像分糖果一样：一共 6 步，每次拿 2 步，需要拿 3 次。",
-      "nextStep": "试试把重复次数改成 3",
-      "uncertainty": "你也可以用每次 1 步、重复 6 次。"
+      "message": "像跳格子一样：一次只向前一格，数够 6 格就能到终点。",
+      "nextStep": "试试把重复次数改成 6",
+      "uncertainty": "运行后可以核对是否到达目标。"
     },
     {
       "taskId": "variant",
@@ -227,8 +227,8 @@
       "learnerChoice": "none",
       "level": 1,
       "action": "point_to_block",
-      "message": "看看前进积木上的数字，它决定每一轮要走几步。现在每轮走几步？",
-      "nextStep": "对照目标，看看前进积木的数字",
+      "message": "看看每轮走了几步。可以换用新的「向前走」，每次会走一步。",
+      "nextStep": "换用新的向前走积木，再调整重复次数",
       "uncertainty": "修改后可以重新预测。"
     },
     {

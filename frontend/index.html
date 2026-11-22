@@ -130,17 +130,32 @@
         <h2 class="panel-title">运行控制</h2>
         <div class="control-row">
           <button type="button" class="primary-button" id="run-button">运行</button>
+          <button type="button" class="ghost-button" id="debug-button" disabled>单步调试</button>
           <button type="button" class="danger-button" id="stop-button" disabled>停止</button>
           <button type="button" class="ghost-button" id="reset-button">恢复本题初始积木</button>
         </div>
         <p class="hint-text" id="run-hint">先完成预测，就可以运行啦。</p>
         <button type="button" class="ghost-button" id="run-locate" hidden>定位积木</button>
+        <div class="debug-panel" id="debug-panel" hidden aria-label="单步调试控制">
+          <div class="control-row">
+            <button type="button" class="ghost-button" id="debug-step">执行一步</button>
+            <button type="button" class="ghost-button" id="debug-play">连续执行</button>
+            <label class="debug-speed" for="debug-speed">速度
+              <select id="debug-speed">
+                <option value="1600">慢速</option>
+                <option value="800" selected>中速</option>
+                <option value="300">快速</option>
+              </select>
+            </label>
+          </div>
+          <p class="debug-status" id="debug-status" role="status"></p>
+        </div>
         <div class="slot-tabs" id="result-tabs" hidden>
           <button type="button" class="chip-button" id="result-tab-result" data-slot="result" aria-controls="result-panel" aria-pressed="true">查看结果</button>
           <button type="button" class="chip-button" id="result-tab-tutor" data-slot="tutor" aria-controls="tutor-panel" aria-pressed="false">求助</button>
         </div>
         <div class="object-view" aria-label="角色状态">
-          <div class="object-title">舞台 · 累计步数</div>
+          <div class="object-title">舞台</div>
           <div class="stage-track" id="stage-track" tabindex="0" role="region" aria-label="累计步数舞台，可左右滚动">
             <div class="stage-lane" id="stage-lane">
               <div id="stage-ticks" aria-hidden="true"></div>

@@ -329,50 +329,29 @@ function drawStateMarks(ctx, node, section, view) {
   const running = view.runningId === node.blockId;
   const error = view.errorId === node.blockId;
   const invalid = view.invalidIds?.has(node.blockId);
-  if (!selected && !running && !error && !invalid) {
-    return;
-  }
-  const color = selected
-    ? "#1b3f9e"
-    : running
-      ? "#ffd23f"
-      : error
-        ? "#ff6b6b"
-        : "#ffd08a";
-  const width = selected || running ? 3 : 2.5;
-  const dashed = !selected && !running;
-
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  if (dashed) {
-    ctx.setLineDash([6, 4]);
-  }
-  if (node.isContainer && section?.outline) {
-    ctx.beginPath();
-    section.outline.forEach((point, index) => {
-      if (index === 0) {
-        ctx.moveTo(point.x - 2, point.y - 2);
-      } else {
-        ctx.lineTo(point.x - 2, point.y - 2);
-      }
-    });
-    ctx.closePath();
-    ctx.stroke();
-  } else {
-    roundRect(ctx, node.rect.x - 2, node.rect.y - 2, node.rect.w + 4, node.rect.h + 4, 12);
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  ctx.restore();
 
   if (running) {
-    ctx.fillStyle = "#3a2c00";
-    roundRect(ctx, node.rect.x + node.rect.w - 66, node.rect.y + 6, 58, 18, 8);
-    ctx.fill();
-    ctx.fillStyle = "#ffe082";
-    ctx.font = "700 11px 'Microsoft YaHei UI', sans-serif";
-    ctx.fillText("▶ 运行中", node.rect.x + node.rect.w - 60, node.rect.y + 19);
+    drawRunningMark(ctx, section?.header || node.rect);
+  } else if (selected || error || invalid) {
+    ctx.save();
+    ctx.strokeStyle = selected ? "#1b3f9e" : error ? "#ff6b6b" : "#ffd08a";
+    ctx.lineWidth = selected ? 3 : 2.5;
+    if (!selected) ctx.setLineDash([6, 4]);
+    if (node.isContainer && section?.outline) {
+      ctx.beginPath();
+      for (const [index, { x, y }] of section.outline.entries()) {
+        if (index === 0) {
+          ctx.moveTo(x - 2, y - 2);
+        } else {
+          ctx.lineTo(x - 2, y - 2);
+        }
+      }
+      ctx.closePath();
+    } else {
+      roundRect(ctx, node.rect.x - 2, node.rect.y - 2, node.rect.w + 4, node.rect.h + 4, 12);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
   if (error || invalid) {
     ctx.fillStyle = error ? "#7c2622" : "#7a4b00";
@@ -383,6 +362,31 @@ function drawStateMarks(ctx, node, section, view) {
       node.rect.y + (node.isContainer ? section.header.h - 4 : node.rect.h - 6),
     );
   }
+}
+
+function drawRunningMark(ctx, { x, y, w, h }) {
+  const gold = "#ffe45c";
+  const dark = "#3b2800";
+  ctx.save();
+  roundRect(ctx, x + 3, y + 3, w - 6, h - 6, 8);
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.strokeStyle = gold;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  const badgeX = x + w - 66;
+  const badgeY = y + 8;
+  roundRect(ctx, badgeX, badgeY, 58, 18, 9);
+  ctx.fillStyle = gold;
+  ctx.fill();
+  ctx.fillStyle = dark;
+  ctx.font = "700 11px 'Microsoft YaHei UI', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("▶ 运行中", badgeX + 29, badgeY + 9);
+  ctx.restore();
 }
 
 function drawLegacyBlock(ctx, block, view) {

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -39,6 +40,10 @@ class _Cancelled(Exception):
     pass
 
 
+class _StepLimit(Exception):
+    pass
+
+
 def send(frame: dict[str, Any]) -> None:
     try:
         sys.stdout.write(json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -48,9 +53,15 @@ def send(frame: dict[str, Any]) -> None:
 
 
 class LineTracer:
-    def __init__(self, line_map: dict[int, str], cancel_event: threading.Event) -> None:
+    def __init__(
+        self, line_map: dict[int, str], cancel_event: threading.Event,
+        stage: Stage, steps: queue.Queue[int] | None,
+    ) -> None:
         self.line_map = line_map
         self.cancel_event = cancel_event
+        self.stage = stage
+        self.steps = steps
+        self.paused_seconds = 0.0
         self.started = time.perf_counter()
         self.seq = 0
         self.events: list[dict[str, Any]] = []
@@ -68,7 +79,10 @@ class LineTracer:
             "timestampMs": int((time.perf_counter() - self.started) * 1000),
         }
         self.events.append(event)
-        send({"type": "event", **event})
+        frame = {"type": "event", **event}
+        if self.steps is not None and kind == "block_exit":
+            frame["stage"] = self.stage.snapshot()
+        send(frame)
 
     def on_line(self, filename: str, line_number: int) -> None:
         if filename != TARGET_FILENAME:
@@ -76,14 +90,36 @@ class LineTracer:
         if self.cancel_event.is_set():
             raise _Cancelled()
         block_id = self.line_map.get(line_number)
-        if not block_id or block_id == self.last_block:
+        if not block_id or (self.steps is None and block_id == self.last_block):
             return
         if self.last_block:
             self._emit("block_exit", self.last_block)
-        self.last_block = block_id
+            self.last_block = None
+        if self.steps is not None and len(self.events) >= MAX_EVENTS - 1:
+            raise _StepLimit()
         self._emit("block_enter", block_id)
+        if self.steps is not None:
+            self._wait_for_step(self.steps)
+        self.last_block = block_id
+
+    def _wait_for_step(self, steps: queue.Queue[int]) -> None:
+        started = time.perf_counter()
+        try:
+            while not self.cancel_event.is_set():
+                try:
+                    seq = steps.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                if seq == self.seq and not self.cancel_event.is_set():
+                    return
+            raise _Cancelled()
+        finally:
+            self.paused_seconds += time.perf_counter() - started
 
     def install(self) -> None:
+        if self.steps is not None:
+            self._install_settrace()
+            return
         try:
             self._install_monitoring()
         except Exception:
@@ -168,7 +204,9 @@ def _error_block(exc: BaseException, line_map: dict[int, str]) -> str | None:
     return block_id
 
 
-def execute(frame: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+def execute(
+    frame: dict[str, Any], cancel_event: threading.Event, steps: queue.Queue[int] | None = None,
+) -> dict[str, Any]:
     request_id = str(frame.get("requestId", ""))
     limits = dict(DEFAULT_LIMITS)
     limits.update(frame.get("limits") or {})
@@ -234,7 +272,11 @@ def execute(frame: dict[str, Any], cancel_event: threading.Event) -> dict[str, A
 
     buffer = OutputBuffer(int(limits["maxOutputBytes"]))
     stage = Stage()
-    tracer = LineTracer(compiled.line_map, cancel_event)
+    # 调试只在积木的首行停下，空循环生成的占位 pass 不单独执行一步。
+    line_map = compiled.line_map if steps is None else {
+        begin: block_id for block_id, (begin, _) in compiled.block_lines.items()
+    }
+    tracer = LineTracer(line_map, cancel_event, stage, steps)
     stdout_seq = {"value": 0}
 
     def printer(*args: Any, sep: str = " ", end: str = "\n", **kwargs: Any) -> None:
@@ -254,6 +296,7 @@ def execute(frame: dict[str, Any], cancel_event: threading.Event) -> dict[str, A
     globals_map = make_globals(stage, printer)
     status = "completed"
     error_code: str | None = None
+    error_message: str | None = None
     block_id: str | None = None
     original_recursion_limit = sys.getrecursionlimit()
     sys.setrecursionlimit(max(50, int(limits["maxRecursionDepth"]) + 20))
@@ -264,6 +307,10 @@ def execute(frame: dict[str, Any], cancel_event: threading.Event) -> dict[str, A
     except _Cancelled:
         status = "cancelled"
         error_code = "RUN_CANCELLED"
+    except _StepLimit:
+        status = "resource_exceeded"
+        error_code = "RUN_RESOURCE_LIMIT"
+        error_message = "这次调试的积木步数太多啦。"
     except RecursionError:
         status = "resource_exceeded"
         error_code = "RUN_RESOURCE_LIMIT"
@@ -280,7 +327,7 @@ def execute(frame: dict[str, Any], cancel_event: threading.Event) -> dict[str, A
         tracer.uninstall()
         sys.setrecursionlimit(original_recursion_limit)
 
-    duration_ms = int((time.perf_counter() - started) * 1000)
+    duration_ms = int((time.perf_counter() - started - tracer.paused_seconds) * 1000)
     return _result(
         request_id,
         status,
@@ -289,11 +336,11 @@ def execute(frame: dict[str, Any], cancel_event: threading.Event) -> dict[str, A
         duration_ms,
         [stage.snapshot()],
         tracer.events,
-        error_object(error_code, block_id) if error_code else None,
+        error_object(error_code, block_id, error_message) if error_code else None,
     )
 
 
-def watch_cancel(cancel_event: threading.Event) -> None:
+def watch_commands(cancel_event: threading.Event, steps: queue.Queue[int] | None) -> None:
     for line in sys.stdin:
         stripped = line.strip()
         if not stripped:
@@ -304,6 +351,10 @@ def watch_cancel(cancel_event: threading.Event) -> None:
             continue
         if frame.get("type") == "cancel":
             cancel_event.set()
+        elif steps is not None and frame.get("type") == "step":
+            steps.put(frame["seq"])
+    if steps is not None:
+        cancel_event.set()
 
 
 def main() -> int:
@@ -361,9 +412,10 @@ def main() -> int:
         return 0
 
     cancel_event = threading.Event()
-    reader = threading.Thread(target=watch_cancel, args=(cancel_event,), daemon=True)
+    steps = queue.Queue() if frame.get("debug") else None
+    reader = threading.Thread(target=watch_commands, args=(cancel_event, steps), daemon=True)
     reader.start()
-    result = execute(frame, cancel_event)
+    result = execute(frame, cancel_event, steps)
     send(result)
     return 0
 

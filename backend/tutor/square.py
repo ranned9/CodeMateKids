@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.domain.program import number_input_value as _number
+from backend.domain.program import move_step_count, number_input_value as _number
 
 MOVE_KIND = "motion.move"
 TURN_KIND = "motion.turn"
@@ -40,7 +40,7 @@ def _chain(node: dict[str, Any] | None) -> list[dict[str, Any]]:
     return result
 
 
-def inspect(root: dict[str, Any] | list[dict[str, Any]] | None, suggested_steps_per_move: int = 2) -> SquareReport:
+def inspect(root: dict[str, Any] | list[dict[str, Any]] | None, suggested_steps_per_move: int | None = 2) -> SquareReport:
     report = SquareReport()
     roots = root if isinstance(root, list) else [root] if isinstance(root, dict) else []
     if not roots:
@@ -92,7 +92,7 @@ def inspect(root: dict[str, Any] | list[dict[str, Any]] | None, suggested_steps_
     moves = [item for item in body if item.get("kind") == MOVE_KIND]
     turns = [item for item in body if item.get("kind") == TURN_KIND]
     if len(moves) == 1:
-        steps = _number((moves[0].get("inputs") or {}).get("steps"))
+        steps = move_step_count(moves[0])
         report.steps_per_move = int(steps) if isinstance(steps, (int, float)) else None
         report.move_id = moves[0].get("blockId")
     if len(turns) == 1:
@@ -104,7 +104,8 @@ def inspect(root: dict[str, Any] | list[dict[str, Any]] | None, suggested_steps_
     report.body_ok = (
         len(moves) == 1
         and len(turns) == 1
-        and report.steps_per_move == suggested_steps_per_move
+        and report.steps_per_move is not None
+        and (suggested_steps_per_move is None or report.steps_per_move == suggested_steps_per_move)
         and report.turn_degrees in (90, 270)
         and report.repeat_times == 4
         and motion == [MOVE_KIND, TURN_KIND]

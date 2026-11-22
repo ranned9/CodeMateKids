@@ -54,7 +54,7 @@ def course_program(settings, task_id: str = "main") -> dict:
     return bundle.tasks[task_id]["initialProgram"]
 
 
-def submit(client, payload: dict, request_id: str, cancel_token: str | None = None) -> dict:
+def submit(client, payload: dict, request_id: str, cancel_token: str | None = None, *, debug: bool = False) -> dict:
     body = {
         "protocolVersion": 1,
         "requestId": request_id,
@@ -65,6 +65,8 @@ def submit(client, payload: dict, request_id: str, cancel_token: str | None = No
         "taskId": payload["courseRef"]["taskId"],
         "mode": "demo",
     }
+    if debug:
+        body["debug"] = True
     return client.post("/api/v1/runs", json=body)
 
 

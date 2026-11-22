@@ -33,7 +33,7 @@ def learning_reply(context: dict[str, Any], decision: Decision, bundle: CourseBu
         "square_loop_structure": ("每条边都会前进和转弯。它们能放进同一个重复积木吗？", "看看重复积木里有哪些动作"),
         "action_outside_loop": ("这块前进只执行了一次。放进重复积木之后，它会动几次？", "看看前进积木的位置"),
         "loop_count_mismatch": ("每一轮走的步数一样。多一轮或少一轮，会走到哪里？", "试着只改重复的次数"),
-        "move_steps_mismatch": ("前进积木上的数字决定每轮走几步。你这次每轮走了几步？", "看看前进积木的数字"),
+        "move_steps_mismatch": ("看看每轮走了几步。可以换用新的「向前走」，每次会走一步。", "换用新的向前走积木，再调整重复次数"),
         "prediction_mismatch": ("你刚刚数的是前进了几次，还是一共走了几步？", "对照猜想和实际移动次数"),
         "goal_met": ("这次运行达到了目标。想一想，哪些动作把海龟带到了那里？", "试试下一题，或看学习小结"),
         "personal_info": ("我们把注意力放回积木。你想先看哪个动作？", "看看当前任务"),

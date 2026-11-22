@@ -303,15 +303,16 @@ def classroom_messages(context: dict, message: str, local: Reply) -> list[dict[s
         "suggestedTarget": local.target,
         "observationOptions": OBSERVATION_SIGNALS,
         "formatExample": {
-            "message": "你想问重复次数，还是每次前进走多远？",
-            "action": "ask_question", "targetRef": None, "awaitingAnswer": True,
+            "message": "重复积木会反复执行放在它里面的动作。",
+            "action": "explain", "targetRef": None, "awaitingAnswer": False,
             "factIdsUsed": [], "observation": None,
         },
     }
     prompt = (
         "你是小学编程老师。用一到三句自然的中文回应孩子正在问的事。"
         "根据选中积木、当前事实和对话理解指代；仍有多种解释才只问一句以区分。"
-        "孩子提出新问题时优先回答新问题。孩子明确要讲解时直接解释概念或该步骤。"
+        "先回应孩子这一轮具体问的事。能用当前积木、运行事实或已澄清的指代作答，就给一个解释或具体提示。"
+        "如果刚问过澄清问题，根据孩子的新回答往下讲，避免重复同一句提问。建议动作和格式示例仅供参考。"
         "历史消息只描述当时情况。当前没有运行时可讲积木结构或请孩子预测。"
         "路线达标且循环结构未达标时，分别说明两项结果。"
         "check_counts 表示先核对步数和前进次数；independent 表示优先请孩子自己检查。"
@@ -357,6 +358,9 @@ def classroom_reply(parsed: ParsedContent, context: dict) -> tuple[Reply, str | 
     decision = Decision(action, HELP_LEVELS[action], context["pattern"], "对话回复")
     normalized = ParsedContent(json.dumps(data, ensure_ascii=False), parsed.truncated, parsed.refusal)
     reply = format_reply(normalized, context, decision, {"actions": context["actions"], "openDialogue": True})
+    history = context["history"]
+    if action == "ask_question" and history and reply["message"].strip() == history[-1]["tutor"].strip():
+        raise ChatAdapterError("repeated_question")
     return Reply(reply["message"], action, reply["targetRef"], reply["awaitingAnswer"]), observation
 
 

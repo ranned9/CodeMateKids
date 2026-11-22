@@ -2,15 +2,34 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from starlette.types import Receive, Scope, Send
 
-from backend.api.dto import CancelRequest, RunSubmitRequest
+from backend.api.dto import CancelRequest, RunStepRequest, RunSubmitRequest
 from backend.api.student_context import classroom_session
 from backend.infra.errors import ApiError, ok
 from backend.service.run import validate_request_id
 
 router = APIRouter(tags=["runs"])
+
+
+class RunEventResponse(StreamingResponse):
+    def __init__(self, frames: Generator[str, None, None]) -> None:
+        self.frames = frames
+        super().__init__(
+            frames,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.frames.close()
 
 
 @router.post("/runs")
@@ -41,12 +60,7 @@ def stream_run_events(request_id: str, request: Request, studentId: str | None =
     except (TypeError, ValueError):
         last_event_id = 0
     student_id, _ = classroom_session(request, stream_id=studentId)
-    generator = manager.stream(request_id, last_event_id, student_id=student_id)
-    return StreamingResponse(
-        generator,
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return RunEventResponse(manager.stream(request_id, last_event_id, student_id=student_id))
 
 
 @router.post("/runs/{request_id}/cancel")
@@ -55,3 +69,10 @@ def cancel_run(request_id: str, body: CancelRequest, request: Request) -> dict:
     manager = request.app.state.runs
     student_id, _ = classroom_session(request)
     return ok(manager.cancel(request_id, body.cancelToken, student_id=student_id))
+
+
+@router.post("/runs/{request_id}/step")
+def step_run(request_id: str, body: RunStepRequest, request: Request) -> dict:
+    manager = request.app.state.runs
+    student_id, _ = classroom_session(request)
+    return ok(manager.step(request_id, body.cancelToken, body.seq, student_id=student_id))

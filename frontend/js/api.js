@@ -97,6 +97,8 @@ export const API = {
   getRun: (requestId, studentId = classroomStudent) => getJson(`/api/v1/runs/${requestId}`, studentId),
   cancelRun: (requestId, cancelToken, studentId = classroomStudent) =>
     postJson(`/api/v1/runs/${requestId}/cancel`, { cancelToken }, studentId),
+  stepRun: (requestId, cancelToken, seq, studentId = classroomStudent) =>
+    postJson(`/api/v1/runs/${requestId}/step`, { cancelToken, seq }, studentId),
   hint: (payload) => postJson("/api/v1/tutor/hints", payload, classroomStudent),
   chat: (payload, studentId = classroomStudent) => postJson("/api/v1/tutor/chat", payload, studentId),
   students: () => getJson("/api/v1/students"),
