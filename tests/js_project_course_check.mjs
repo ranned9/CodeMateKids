@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { setImmediate } from "node:timers/promises";
 import { API } from "../frontend/js/api.js";
+import { createBlock } from "../frontend/js/editor/model.js";
+import { readClassroomDraft } from "../frontend/js/workflows/classroom-drafts.js";
 
 const noOp = () => {};
 const canvasContext = new Proxy({ measureText: (text) => ({ width: text.length * 10 }) }, {
@@ -48,6 +50,7 @@ class ElementStub {
   }
   setAttribute() {}
   remove() {}
+  closest() { return null; }
   getContext() {
     return canvasContext;
   }
@@ -103,15 +106,23 @@ await import("../frontend/js/main.js");
 await setImmediate();
 const { __cmkState: state, __cmkEditor: editor } = window;
 assert.equal(state.contentVersion, initialVersion);
+assert.equal(state.root, null);
+assert.equal(element("canvas-empty").hidden, false);
+assert.equal(editor.insertFromToolbox("event.start"), true);
+assert.equal(editor.insertFromToolbox("control.repeat"), true);
+assert.equal(editor.insertFromToolbox("motion.move"), true);
+assert.equal(element("canvas-empty").hidden, true);
 
 const repeatId = state.root.next.blockId;
 const edit = (value) => editor.commitFieldValue(repeatId, "times", value);
 const times = (root) => root.next.inputs.times;
 const save = () => element("save-project").click();
 
+edit("2");
+const revision = state.programRevision;
 edit("2.5");
 assert.equal(times(state.root), 2);
-assert.equal(state.dirty, false);
+assert.equal(state.programRevision, revision);
 assert.match(element("toast").textContent, /整数/);
 edit("1");
 assert.equal(times(state.root), 1);
@@ -185,11 +196,16 @@ await successfulRefresh;
 assert.equal(state.contentVersion, newVersion);
 assert.equal(state.course.course.title, "更新后的课程");
 assert.equal(state.dirty, false);
-assert.equal(times(state.root), 2);
+assert.equal(state.root, null);
 assert.equal(retry.hidden, true);
 assert.equal(retry.disabled, false);
 
-const openedProgram = fixture.tasks[1].initialProgram;
+const makeBlock = (kind, id) => createBlock(state.blocksByKind.get(kind), id);
+const savedRoot = makeBlock("event.start", "saved-start");
+savedRoot.next = makeBlock("control.repeat", "saved-repeat");
+savedRoot.next.body = [makeBlock("motion.move", "saved-move")];
+savedRoot.next.next = makeBlock("look.say", "saved-say");
+const openedProgram = { ...fixture.tasks[1].initialProgram, root: savedRoot };
 API.loadProject = async (fileText) => ({ program: JSON.parse(fileText), runnable: true });
 const fileInput = element("project-file");
 fileInput.value = "variant.json";
@@ -312,5 +328,94 @@ editor.numberControls.controls.get(angleId).increase.click();
 assert.match(element("code-preview-text").textContent, /stage\.turn\(270\)/);
 assert.equal(editor.deleteBlock(angleId), true);
 assert.match(element("code-preview-text").textContent, /stage\.turn\(90\)/);
+
+let acceptReset = false;
+window.confirm = () => acceptReset;
+const rootBeforeReset = state.root;
+await element("reset-button").click();
+assert.equal(state.root, rootBeforeReset);
+acceptReset = true;
+await element("reset-button").click();
+assert.equal(state.root, null);
+assert.equal(element("canvas-empty").hidden, false);
+
+function memoryStorage() {
+  const items = new Map();
+  return {
+    getItem: (key) => items.get(key) ?? null,
+    setItem: (key, value) => items.set(key, value),
+    removeItem: (key) => items.delete(key),
+  };
+}
+
+window.localStorage = memoryStorage();
+globalThis.sessionStorage = memoryStorage();
+const student = "student-11111111111111111111111111111111";
+API.students = async () => ({ students: [{ studentId: student, displayName: "小林" }] });
+startup = { ...startup, tutorChatEnabled: true };
+state.activeTaskId = "main";
+await import("../frontend/js/main.js?classroom-drafts");
+await setImmediate();
+const guest = state.studentId;
+assert.match(guest, /^guest-/);
+
+const selectTask = (taskId) => element("task-list-panel").children
+  .find((card) => card.firstChild?.textContent === state.tasks.get(taskId).title).children.at(-1).click();
+const selectStudent = (value) => {
+  const select = element("student-select");
+  select.value = value;
+  return select.listeners.get("change")();
+};
+let currentEditor = window.__cmkEditor;
+assert.equal(currentEditor.insertFromToolbox("event.start"), true);
+assert.equal(currentEditor.insertFromToolbox("motion.move"), true);
+const guestMain = structuredClone(state.root);
+assert.equal(element("save-state").textContent, "草稿已自动保存");
+assert.equal(await selectTask("variant"), true);
+assert.equal(state.root, null);
+assert.equal(await selectTask("main"), true);
+assert.deepEqual(state.root, guestMain);
+
+await selectStudent(student);
+assert.equal(state.studentId, student);
+assert.equal(state.root, null);
+assert.equal(await selectTask("variant"), true);
+assert.equal(currentEditor.commitDrop(null, "event.start", { valid: true, freePosition: { x: 120, y: 70 } }), true);
+assert.equal(currentEditor.insertFromToolbox("motion.move"), true);
+const studentVariant = structuredClone(state.root);
+
+globalThis.sessionStorage = memoryStorage();
+state.activeTaskId = "main";
+state.root = null;
+await import("../frontend/js/main.js?classroom-reopened");
+await setImmediate();
+assert.equal(state.studentId, student);
+assert.equal(state.activeTaskId, "variant");
+assert.deepEqual(state.root, studentVariant);
+assert.equal(state.dirty, false);
+assert.equal(element("save-state").textContent, "草稿已自动保存");
+currentEditor = window.__cmkEditor;
+
+await selectStudent("");
+assert.match(state.studentId, /^guest-/);
+assert.notEqual(state.studentId, guest);
+assert.equal(state.activeTaskId, "main");
+assert.deepEqual(state.root, guestMain);
+await selectStudent(student);
+assert.equal(state.activeTaskId, "variant");
+assert.deepEqual(state.root, studentVariant);
+
+acceptReset = false;
+await element("reset-button").click();
+assert.deepEqual(state.root, studentVariant);
+acceptReset = true;
+await element("reset-button").click();
+assert.equal(state.root, null);
+assert.equal(readClassroomDraft(student, state.tasks.get("variant")), null);
+assert.deepEqual(readClassroomDraft(guest, state.tasks.get("main")).root, guestMain);
+
+window.localStorage.setItem = () => { throw new Error("storage unavailable"); };
+assert.equal(currentEditor.insertFromToolbox("event.start"), true);
+assert.match(element("save-state").textContent, /自动保存失败/);
 
 console.log("JS-PROJECT-COURSE-CHECK PASSED");

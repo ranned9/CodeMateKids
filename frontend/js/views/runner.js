@@ -14,6 +14,7 @@ import {
 import { captureContext, isContextActive, isCurrentContext, nextPageVersion } from "../core/viewContext.js";
 import { classifyResult, createRunViewContext, programFingerprint } from "../ux/runContext.js";
 import { renderResult, resetObjectView, updateObjectView } from "./result.js";
+import { readClassroomDraft } from "../workflows/classroom-drafts.js";
 import { prepareWorkspaceChange } from "../workflows/workspace-change.js";
 import { LOOP_OBSERVATION, repeatedMoveInLoop } from "../ux/loopEvidence.js";
 import { predictionSourceFor } from "../ux/prediction.js";
@@ -590,7 +591,11 @@ export function createRunner({
     const outcome = await prepareWorkspaceChange({
       state,
       reason: "reset",
-      confirm: () => !state.dirty || window.confirm("丢弃还没保存的修改，恢复这个任务的初始程序？"),
+      confirm: () => {
+        const hasWork = state.dirty || state.artifactSource === "project" || state.draftSavedRevision != null ||
+          readClassroomDraft(state.studentId, task);
+        return !hasWork || window.confirm("重置本题画布，并删除这道题的自动草稿？");
+      },
       leaveRunContext: (reason) => leaveRunContext({ reason }),
     });
     if (outcome === "run-pending") {
@@ -598,7 +603,7 @@ export function createRunner({
     }
     if (outcome !== "ready") return;
     if (resetToTask) {
-      resetToTask(task.taskId);
+      if (resetToTask(task.taskId) === false) return;
     } else {
       editor.setProgram(programWorkspace(task.initialProgram));
       resetObjectView(elements.objectView);

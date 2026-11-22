@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const asUrl = (relative) => pathToFileURL(path.join(root, relative)).href;
@@ -175,9 +174,11 @@ stageElements.track.scrollLeft = 0;
 updateObjectView(stageElements, stageObjects, variantTask);
 assert.equal(stageElements.track.scrollLeft, longTrack.scrollLeft, "重新运行后回到海龟的位置");
 
-const loopCourse = JSON.parse(readFileSync(path.join(root, "content/demo-loop/course.json"), "utf8"));
-const mainRoot = loopCourse.tasks[0].initialProgram.root;
-const moveId = mainRoot.next.body[0].blockId;
+const moveId = "b-move";
+const mainRoot = {
+  blockId: "b-start", kind: "event.start",
+  next: { blockId: "b-repeat", kind: "control.repeat", body: [{ blockId: moveId, kind: "motion.move" }] },
+};
 const events = ["block_enter", "block_exit", "block_enter", "block_exit"]
   .map((kind, index) => ({ kind, seq: index + 1, blockId: moveId }));
 const result = { status: "completed", events };

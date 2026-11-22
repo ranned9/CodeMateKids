@@ -11,7 +11,7 @@ import pytest
 from backend.infra.config import load_settings
 from backend.infra.errors import ApiError
 from backend.service.course import course_payload, load_course
-from tests.helpers import ROOT, node
+from tests.helpers import ROOT, node, simple_program
 
 
 def _settings_for(tmp_path: Path, name: str):
@@ -46,6 +46,7 @@ def test_bad_field_type_fails_course(tmp_path) -> None:
     settings, root = _settings_for(tmp_path, "bad-field")
 
     def mutate(program, course):
+        program["root"] = simple_program()["root"]
         program["root"]["next"]["inputs"]["times"] = "两个"
 
     _mutate(root, mutate)
@@ -96,6 +97,7 @@ def test_unrunnable_block_blocks_only_that_task(tmp_path) -> None:
     settings, root = _settings_for(tmp_path, "blocked-task")
 
     def mutate(program, course):
+        program["root"] = simple_program()["root"]
         program["root"]["next"]["kind"] = "python.class"
         program["root"]["next"]["unknown"] = True
 

@@ -23,7 +23,7 @@ export function createProjectWorkflow({ state, elements, editorReady, applyProje
   let openRequestSequence = 0;
 
   async function askUnsavedChoice() {
-    if (!state.dirty) {
+    if (!state.dirty || state.draftSavedRevision === state.programRevision) {
       return "discard";
     }
     const { dialog, title, text } = elements;

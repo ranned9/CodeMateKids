@@ -23,6 +23,7 @@ def test_course_shape_and_single_theme(client) -> None:
     assert [task["taskId"] for task in data["tasks"]] == ["main", "variant", "transfer-square"]
     assert data["tasks"][1]["nextTaskId"] == "transfer-square"
     assert all(task["enterable"] for task in data["tasks"])
+    assert all(task["initialProgram"]["root"] is None for task in data["tasks"])
     assert {theme["status"] for theme in data["otherThemes"]} == {"coming_soon"}
 
 

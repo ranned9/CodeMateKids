@@ -22,6 +22,13 @@ import { showSummary } from "./views/summary.js";
 import { renderToolbox } from "./views/toolbox.js";
 import { createTutor } from "./views/tutor.js";
 import { createTutorChat } from "./views/tutorChat.js";
+import {
+  clearClassroomDraft,
+  lastClassroomTask,
+  readClassroomDraft,
+  rememberClassroomTask,
+  saveClassroomDraft,
+} from "./workflows/classroom-drafts.js";
 import { createCourseWorkflow } from "./workflows/course.js";
 import { createPredictionWorkflow } from "./workflows/predictions.js";
 import { createProjectWorkflow } from "./workflows/projects.js";
@@ -182,10 +189,12 @@ function updateSaveState() {
     lastSavedRevision: state.lastSavedRevision,
     programRevision: state.programRevision,
     lastError: state.saveError,
+    draftSaved: state.draftSavedRevision === state.programRevision,
+    draftFailed: state.draftSaveFailed,
   });
   const element = dom["save-state"];
   if (element) {
-    element.textContent = derived.label;
+    if (element.textContent !== derived.label) element.textContent = derived.label;
     element.className = `save-state ${saveStateClass(derived.status)}`;
     element.title = derived.needsResave ? "再保存一次，新的改动就会写进作品。" : "";
   }
@@ -323,7 +332,7 @@ function leaveRunContext(reason) {
   return runner?.leaveRunContext({ reason });
 }
 
-function applyTask(taskId) {
+function applyTask(taskId, { reset = false } = {}) {
   const task = state.tasks.get(taskId);
   if (!task) {
     toast("这个任务暂时打不开。", true);
@@ -333,13 +342,20 @@ function applyTask(taskId) {
     toast(task.blockedReason || "这个任务需要的积木暂不支持。", true);
     return false;
   }
+  const draft = readClassroomDraft(state.studentId, task);
+  if (reset && !clearClassroomDraft(state.studentId, task) && (draft || state.draftSavedRevision != null)) {
+    toast("这道题的草稿暂时无法清除，可以再试一次。", true);
+    return false;
+  }
   installArtifact({
     source: "task",
     taskId,
-    root: cloneTree(programWorkspace(task.initialProgram)),
+    root: draft && !reset ? draft.root : cloneTree(programWorkspace(task.initialProgram)),
+    draftSaved: Boolean(draft && !reset),
     readonly: false,
     readonlyReason: "",
   });
+  rememberClassroomTask(state.studentId, task);
   setPhase("editing");
   state.dirty = false;
   return true;
@@ -408,9 +424,10 @@ async function switchStudent(studentId) {
       if (outcome === "run-pending") toast("等这次运行结束后再切换学生。", true);
       return false;
     }
-    const next = state.tasks.get(state.activeTaskId)?.enterable ? state.activeTaskId
-      : [...state.tasks.values()].find((task) => task.enterable)?.taskId;
     setStudent(studentId);
+    const recent = lastClassroomTask(studentId, state.course);
+    const next = [recent, state.activeTaskId].find((taskId) => state.tasks.get(taskId)?.enterable)
+      ?? [...state.tasks.values()].find((task) => task.enterable)?.taskId;
     state.prediction.clear();
     state.predictionContext.clear();
     state.predictionPending.clear();
@@ -504,6 +521,13 @@ function handleStateChange(reason) {
   if (reason === "program") {
     state.programRevision += 1;
     state.dirty = true;
+    const task = state.tasks.get(state.activeTaskId);
+    if (task?.enterable && !state.readonly) {
+      const saved = saveClassroomDraft(state.studentId, task, state.root);
+      state.draftSavedRevision = saved ? state.programRevision : null;
+      state.draftSaveFailed = !saved;
+      if (saved) rememberClassroomTask(state.studentId, task);
+    }
     refreshResultOwnership();
     tutor?.updateContext();
     updateSaveState();
@@ -586,7 +610,7 @@ async function boot() {
   dom["undo-button"].addEventListener("click", () => changeHistory("undo"));
   dom["redo-button"].addEventListener("click", () => changeHistory("redo"));
   window.addEventListener("beforeunload", (event) => {
-    if (state.dirty) {
+    if (state.dirty && state.draftSavedRevision !== state.programRevision) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -601,7 +625,7 @@ async function boot() {
     history = new History({
       snapshot: () => cloneTree(state.root),
       restore: (root) => {
-        editor.setProgram(root, { clearHistory: false });
+        editor.setProgram(root, { clearHistory: false, notify: false });
         state.dirty = true;
         notify("program");
       },
@@ -654,7 +678,7 @@ async function boot() {
       editor,
       toast,
       refresh: (reason) => renderAll(reason || "run"),
-      resetToTask: applyTask,
+      resetToTask: (taskId) => applyTask(taskId, { reset: true }),
       getResultActions: resultCallbacks,
       onPhaseChange: () => notify("phase"),
     });
@@ -713,8 +737,12 @@ async function boot() {
         onInitial: setStudent, onSwitch: switchStudent, toast,
       });
     }
+    const recent = lastClassroomTask(state.studentId, course);
+    if (course.tasks.some((task) => task.taskId === recent && task.enterable)) state.activeTaskId = recent;
     if (courses.installCourse(course) && startup.status === "ready") {
-      toast("课堂准备好啦，先读一读目标，再猜一猜角色会动几次。");
+      toast(state.draftSavedRevision === state.programRevision
+        ? "已恢复本题草稿，可以接着搭积木。"
+        : "课堂准备好啦，先读一读目标，再搭积木。");
     }
     updateSaveState();
     updateClassroom();

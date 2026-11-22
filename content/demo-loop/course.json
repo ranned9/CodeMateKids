@@ -20,34 +20,14 @@
       "title": "让角色走四步",
       "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "knowledgePointIds": ["kp.loop"]},
       "objective": "让角色累计走 4 步。试着把前进积木放在重复里，再运行看看。",
-      "predictionQuestion": "先猜一猜：现在的程序会让角色动几次？",
+      "predictionQuestion": "搭好积木后，先猜一猜角色会前进几次。",
       "durationHint": "大约 5 分钟",
       "initialProgram": {
         "format": "codematekids.program",
         "formatVersion": 1,
         "target": {"language": "python", "version": "3.12"},
         "courseRef": {"courseId": "demo-loop", "version": 1, "taskId": "main"},
-        "root": {
-          "blockId": "b-start-main",
-          "kind": "event.start",
-          "inputs": {},
-          "body": [],
-          "next": {
-            "blockId": "b-repeat-main",
-            "kind": "control.repeat",
-            "inputs": {"times": 2},
-            "body": [
-              {
-                "blockId": "b-move-main",
-                "kind": "motion.move",
-                "inputs": {},
-                "body": [],
-                "next": null
-              }
-            ],
-            "next": null
-          }
-        },
+        "root": null,
         "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
       },
       "expectedBehavior": "舞台显示累计走了 4 步。练习用重复积木来执行前进动作。",
@@ -114,41 +94,15 @@
       "type": "variant",
       "title": "小海龟走六步",
       "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "knowledgePointIds": ["kp.loop"]},
-      "objective": "让小海龟累计走 6 步。加练时，可以改一改它走完后说的话。",
-      "predictionQuestion": "先猜一猜：小海龟这次会动几次？",
+      "objective": "让小海龟累计走 6 步。加练时，可以让它走完后说一句话。",
+      "predictionQuestion": "搭好积木后，先猜一猜小海龟会前进几次。",
       "durationHint": "大约 4 分钟",
       "initialProgram": {
         "format": "codematekids.program",
         "formatVersion": 1,
         "target": {"language": "python", "version": "3.12"},
         "courseRef": {"courseId": "demo-loop", "version": 1, "taskId": "variant"},
-        "root": {
-          "blockId": "b-start-variant",
-          "kind": "event.start",
-          "inputs": {},
-          "body": [],
-          "next": {
-            "blockId": "b-repeat-variant",
-            "kind": "control.repeat",
-            "inputs": {"times": 1},
-            "body": [
-              {
-                "blockId": "b-move-variant",
-                "kind": "motion.move",
-                "inputs": {},
-                "body": [],
-                "next": null
-              }
-            ],
-            "next": {
-              "blockId": "b-say-variant",
-              "kind": "look.say",
-              "inputs": {"text": "我走完啦"},
-              "body": [],
-              "next": null
-            }
-          }
-        },
+        "root": null,
         "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
       },
       "expectedBehavior": "小海龟累计走 6 步。结束时说一句话是可选的加练。",
@@ -216,7 +170,7 @@
       "type": "variant",
       "title": "让海龟画正方形",
       "objective": "让海龟沿四条边走回起点。每条边向前走一步，再转一个直角。试着把这两个动作放进同一个重复积木。",
-      "predictionQuestion": "先猜一猜：这段程序一共会执行几次前进？",
+      "predictionQuestion": "搭好积木后，先猜一猜海龟会前进几次。",
       "durationHint": "大约 5 分钟",
       "teaching": {"goalKind": "square", "knowledgePointIds": ["kp.loop"]},
       "initialProgram": {
@@ -224,7 +178,7 @@
         "formatVersion": 1,
         "target": {"language": "python", "version": "3.12"},
         "courseRef": {"courseId": "demo-loop", "version": 1, "taskId": "transfer-square"},
-        "root": {"blockId": "b-start-square", "kind": "event.start", "inputs": {}, "body": [], "next": null},
+        "root": null,
         "metadata": {"createdAt": "2026-11-20T00:00:00Z", "updatedAt": "2026-11-20T00:00:00Z"}
       },
       "expectedBehavior": "舞台上出现四条一样长的边。海龟回到起点，朝向和开始时一样。",

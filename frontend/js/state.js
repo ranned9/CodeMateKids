@@ -33,6 +33,8 @@ export const state = {
   predictionPending: new Map(),
   saveStateSaving: false,
   saveError: null,
+  draftSavedRevision: null,
+  draftSaveFailed: false,
   lastSavedRevision: 0,
   readonly: false,
   mode: "mock",

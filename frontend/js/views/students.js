@@ -20,6 +20,23 @@ function writeSession(key, value) {
   }
 }
 
+function lastStudent() {
+  try {
+    return readSession(ACTIVE_STUDENT_KEY) ?? window.localStorage.getItem(ACTIVE_STUDENT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberStudent(student) {
+  writeSession(ACTIVE_STUDENT_KEY, student);
+  try {
+    window.localStorage.setItem(ACTIVE_STUDENT_KEY, student);
+  } catch {
+    // 标签页仍记住当前档案。
+  }
+}
+
 export async function bindStudents({ elements, onInitial, onSwitch, toast, api = API }) {
   const { container, select, dialog, form, input, create, save, cancel } = elements;
   const temporary = readSession(TEMPORARY_KEY) || `guest-${crypto.randomUUID().replaceAll("-", "")}`;
@@ -41,7 +58,7 @@ export async function bindStudents({ elements, onInitial, onSwitch, toast, api =
     try {
       if (await onSwitch(value || temporary)) {
         current = value;
-        writeSession(ACTIVE_STUDENT_KEY, current);
+        rememberStudent(current);
       }
     } finally {
       select.value = current;
@@ -80,7 +97,7 @@ export async function bindStudents({ elements, onInitial, onSwitch, toast, api =
   try {
     const { students } = await api.students();
     for (const student of students) addStudent(student);
-    const saved = readSession(ACTIVE_STUDENT_KEY);
+    const saved = lastStudent();
     current = students.some((student) => student.studentId === saved) ? saved : "";
   } catch (error) {
     toast(error.messageForChild || "暂时无法读取学生档案。", true);

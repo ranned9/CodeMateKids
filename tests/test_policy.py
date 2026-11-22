@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import ast
-import json
 import threading
-from pathlib import Path
 
 import pytest
 
@@ -13,14 +11,7 @@ from backend.domain.program import ProgramError, validate_program
 from backend.runner import worker as worker_mod
 from backend.runner.compiler import CompiledProgram, TARGET_FILENAME, compile_program
 from backend.runner.policy import check_module, check_source
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def course_program() -> dict:
-    with open(ROOT / "content" / "demo-loop" / "course.json", "r", encoding="utf-8") as handle:
-        course = json.load(handle)
-    return course["tasks"][0]["initialProgram"]
+from tests.helpers import simple_program
 
 
 def test_class_definition_rejected() -> None:
@@ -40,8 +31,8 @@ def test_dangerous_builtin_rejected() -> None:
     assert violations[0].node_type == "Call"
 
 
-def test_compiled_course_is_clean() -> None:
-    compiled = compile_program(course_program())
+def test_compiled_loop_is_clean() -> None:
+    compiled = compile_program(simple_program())
     assert compiled.source
     assert check_module(compiled.module, compiled.line_map) == []
 
@@ -65,7 +56,7 @@ def test_worker_blocks_fake_class_model(monkeypatch) -> None:
         "type": "run",
         "protocolVersion": 1,
         "requestId": "run-policy",
-        "program": course_program(),
+        "program": simple_program(),
         "limits": {"wallTimeMs": 3000, "memoryMb": 128, "maxOutputBytes": 16384, "maxRecursionDepth": 200},
         "target": {"language": "python", "version": "3.12"},
     }
@@ -83,7 +74,7 @@ def test_validation_error_priority(monkeypatch) -> None:
         raise AssertionError("策略校验不应在模型校验之前执行")
 
     monkeypatch.setattr(worker_mod, "compile_program", should_not_run)
-    broken = course_program()
+    broken = simple_program()
     broken["root"]["next"]["inputs"]["times"] = "两个"
     frame = {
         "type": "run",
@@ -100,7 +91,7 @@ def test_validation_error_priority(monkeypatch) -> None:
 
 
 def test_validate_program_raises_before_policy() -> None:
-    broken = course_program()
+    broken = simple_program()
     broken["target"] = {"language": "python", "version": "3.11"}
     with pytest.raises(ProgramError) as exc:
         validate_program(broken)
@@ -108,7 +99,7 @@ def test_validate_program_raises_before_policy() -> None:
 
 def test_run_request_with_source_code_is_rejected(client) -> None:
     client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 2})
-    program = course_program()
+    program = simple_program()
     program["sourceCode"] = "print('hello')"
     body = {
         "protocolVersion": 1,

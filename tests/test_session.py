@@ -6,12 +6,7 @@ import json
 
 from backend.app import create_app
 from backend.infra.config import load_settings
-from backend.service.course import load_course
-
-
-def _program(settings, task_id: str = "main") -> dict:
-    bundle = load_course(settings)
-    return bundle.tasks[task_id]["initialProgram"]
+from tests.helpers import simple_program
 
 
 def _submit(client, program: dict, request_id: str) -> dict:
@@ -62,9 +57,9 @@ def test_summary_empty_shape(client) -> None:
     assert "排名" not in json.dumps(data, ensure_ascii=False)
 
 
-def test_two_runs_keep_request_ids_separate(client, app, settings) -> None:
+def test_two_runs_keep_request_ids_separate(client, app) -> None:
     client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 2})
-    program = _program(settings)
+    program = simple_program()
     first = _submit(client, program, "run-session-1")
     result_one = _drain(client, first["requestId"])
     second = _submit(client, program, "run-session-2")
@@ -102,7 +97,7 @@ def test_timeout_run_only_records_unfinished_fact(tmp_path) -> None:
 
     with TestClient(app) as client:
         client.post("/api/v1/session/prediction", json={"taskId": "main", "value": 2})
-        program = _program(settings)
+        program = simple_program()
         inner = {"blockId": "b-move", "kind": "motion.move", "inputs": {"steps": 1}, "body": [], "next": None}
         current = inner
         for depth in range(5):

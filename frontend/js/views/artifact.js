@@ -21,6 +21,8 @@ export function resetDerivedState(state, dom = {}) {
   state.readonlyReason = "";
   state.saveStateSaving = false;
   state.saveError = null;
+  state.draftSavedRevision = null;
+  state.draftSaveFailed = false;
 
   if (dom["prediction-compare"]) {
     dom["prediction-compare"].hidden = true;
@@ -98,6 +100,7 @@ export function applyArtifact({
   state.dirty = false;
   state.savedSnapshot = cloneTree(state.root);
   state.lastSavedRevision = state.programRevision;
+  if (descriptor.draftSaved) state.draftSavedRevision = state.programRevision;
   renderAll("artifact");
   if (runner) {
     runner.updateControls();

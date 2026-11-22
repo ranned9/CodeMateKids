@@ -13,6 +13,8 @@ export function deriveSaveState({
   lastSavedRevision = null,
   programRevision = 0,
   lastError = null,
+  draftSaved = false,
+  draftFailed = false,
 } = {}) {
   if (saving) {
     const pendingRevision = lastSavedRevision != null && programRevision !== lastSavedRevision;
@@ -24,6 +26,12 @@ export function deriveSaveState({
   }
   if (lastError) {
     return { status: "failed", needsResave: true, label: SAVE_LABELS.failed, reason: lastError };
+  }
+  if (draftSaved) {
+    return { status: "clean", needsResave: false, label: "草稿已自动保存" };
+  }
+  if (draftFailed && dirty) {
+    return { status: "failed", needsResave: true, label: "自动保存失败，可导出作品" };
   }
   if (dirty) {
     return { status: "dirty", needsResave: true, label: SAVE_LABELS.dirty };

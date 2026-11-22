@@ -7,17 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from backend.infra.config import BASE_DIR
-from tests.helpers import drain, node, submit
+from tests.helpers import drain, node, simple_program as _program, submit
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 COURSE_REF = {"courseId": "demo-loop", "version": 1, "taskId": "main"}
-
-
-def _program() -> dict:
-    with open(BASE_DIR / "content" / "demo-loop" / "course.json", "r", encoding="utf-8") as handle:
-        course = json.load(handle)
-    return course["tasks"][0]["initialProgram"]
 
 
 def test_save_load_save_roundtrip(client) -> None:
