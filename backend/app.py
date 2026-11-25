@@ -16,6 +16,7 @@ from backend.api.student_context import StudentSessions
 from backend.infra.config import BASE_DIR, Settings, load_settings
 from backend.infra.errors import ApiError, fail
 from backend.service.run import RunManager
+from backend.service.speech import SpeechService
 from backend.session.store import SessionStore
 from backend.session.conversations import ConversationStore
 from backend.session.learning_store import LearningStore
@@ -51,11 +52,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.model_resolver = None
     app.state.model_probe = None
     app.state.model_transport = send_model_request
+    try:
+        app.state.speech = SpeechService(settings)
+    except Exception:
+        app.state.speech = None
 
     @app.middleware("http")
-    async def guard_model_config(request: Request, call_next):
+    async def guard_local_api(request: Request, call_next):
         path = request.url.path
-        if path.startswith("/api/v1/tutor/model-config"):
+        if path.startswith(("/api/v1/tutor/model-config", "/api/v1/speech/")):
             try:
                 if request.method == "POST":
                     require_local_same_origin(request)

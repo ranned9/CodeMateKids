@@ -126,7 +126,7 @@ BASELINE_PROGRAM_ENTRYPOINTS = {
     "validate_program",
 }
 
-BASELINE_REQUIREMENTS = {"fastapi", "httpx", "pydantic", "pytest", "uvicorn"}
+BASELINE_REQUIREMENTS = {"fastapi", "httpx", "pydantic", "pytest", "uvicorn", "huaweicloudsdksis"}
 
 PACKAGE_DEPENDENCY_FIELDS = {
     "dependencies",
@@ -154,6 +154,8 @@ def _requirement_names() -> set[str]:
 def test_error_spec_keys_unchanged() -> None:
     assert set(ERROR_SPECS) == BASELINE_ERROR_CODES | {
         "TUTOR_TURN_BUSY", "TUTOR_TURN_CONFLICT", "STUDENT_NOT_FOUND", "LEARNING_STORE_UNAVAILABLE",
+    } | {
+        "SPEECH_UNAVAILABLE", "SPEECH_PAYLOAD_TOO_LARGE", "SPEECH_AUDIO_INVALID",
     }
     assert len(BASELINE_ERROR_CODES) == 28
 

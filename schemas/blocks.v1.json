@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "description": "积木注册表：循环主题子集。前后端连接判定唯一真源。",
+  "description": "积木注册表：循环和分支。前后端连接判定唯一真源。",
   "portTypes": [
     "statement-next",
     "statement-body",
@@ -114,6 +114,45 @@
       "blockedHint": "把动作放进循环里，点「次数」或拖入数字来改次数。",
       "runnable": true,
       "testCaseRefs": ["TC-LOOP-01", "TC-LOOP-NEG-BODY"]
+    },
+    {
+      "kind": "control.if",
+      "displayName": "如果",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {"id": "in_body", "direction": "in", "portType": "statement-body", "accepts": ["statement-next"], "required": false},
+        {"id": "out_next", "direction": "out", "portType": "statement-next", "accepts": ["statement-next"], "required": false}
+      ],
+      "fields": [
+        {"name": "operator", "label": "已走步数", "valueType": "choice", "required": true, "defaultValue": ">=", "choices": [">=", "==", "<"]},
+        {"name": "threshold", "label": "比较值", "valueType": "integer", "acceptsNumberBlock": true, "required": true, "defaultValue": 1, "range": {"min": 0, "max": 1000}}
+      ],
+      "scopeRule": "none",
+      "targetAnchor": "python.if_statement",
+      "blockedHint": "比较海龟累计走过的步数。条件成立时，执行里面的动作。",
+      "runnable": true,
+      "testCaseRefs": ["TC-BRANCH-IF", "TC-BRANCH-NEG-CONDITION"]
+    },
+    {
+      "kind": "control.else",
+      "displayName": "否则",
+      "symbol": "statement",
+      "outputType": "statement",
+      "syntaxCategory": "control_flow",
+      "definitionVersion": 1,
+      "ports": [
+        {"id": "in_body", "direction": "in", "portType": "statement-body", "accepts": ["statement-next"], "required": false},
+        {"id": "out_next", "direction": "out", "portType": "statement-next", "accepts": ["statement-next"], "required": false}
+      ],
+      "fields": [],
+      "scopeRule": "none",
+      "targetAnchor": "python.else_clause",
+      "blockedHint": "接在「如果」后面。条件不成立时，执行这里面的动作。",
+      "runnable": true,
+      "testCaseRefs": ["TC-BRANCH-ELSE", "TC-BRANCH-NEG-ORPHAN"]
     },
     {
       "kind": "motion.move",

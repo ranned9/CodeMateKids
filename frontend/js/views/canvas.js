@@ -7,7 +7,7 @@ import { DndController } from "../editor/dnd.js";
 import { emptyLayoutModel } from "../editor/targets.js";
 import { canConnectToTarget, numericFieldError } from "../editor/connector.js";
 import { attachKeyboard } from "../editor/keyboard.js";
-import { NumberControls } from "../editor/number-controls.js";
+import { FieldControls } from "../editor/number-controls.js";
 import { syncMirror } from "../util/a11y.js";
 
 function previewCode(root, definitions) {
@@ -41,8 +41,15 @@ function previewCode(root, definitions) {
       const pad = "    ".repeat(indent);
       if (current.kind === "event.start") {
         lines.push(`${pad}pass  # 当开始`);
-      } else if (current.kind === "control.repeat") {
-        lines.push(`${pad}for _repeat_${guard} in range(${numberInputValue(current.inputs?.times) ?? 0}):`);
+      } else if (["control.repeat", "control.if", "control.else"].includes(current.kind)) {
+        if (current.kind === "control.repeat") {
+          lines.push(`${pad}for _repeat_${guard} in range(${numberInputValue(current.inputs?.times) ?? 0}):`);
+        } else if (current.kind === "control.if") {
+          const { operator, threshold } = current.inputs || {};
+          lines.push(`${pad}if stage.steps ${operator ?? ">="} ${numberInputValue(threshold) ?? "?"}:`);
+        } else {
+          lines.push(`${pad}else:`);
+        }
         if (current.body?.length) {
           for (const child of current.body) {
             chain(child, indent + 1);
@@ -90,7 +97,7 @@ export class EditorView {
     this.width = 720;
     this.height = 460;
     this.fieldEditor = null;
-    this.numberControls = new NumberControls(this);
+    this.fieldControls = new FieldControls(this);
     this.dnd = new DndController(this, { toolbox: options.toolbox });
     this.dnd.bind();
     attachKeyboard(this, this.handlers);
@@ -123,7 +130,7 @@ export class EditorView {
   setProgram(root, { clearHistory = true, notify = true } = {}) {
     this.cancelDrag("context");
     this.cancelFieldEdit();
-    this.numberControls.reset();
+    this.fieldControls.reset();
     this.state.root = root;
     this.state.selectedBlockId = null;
     this.state.errorBlockId = null;
@@ -173,7 +180,8 @@ export class EditorView {
   render() {
     this.measure();
     const editable = !this.state.readonly && ["editing", "result", "error"].includes(this.state.phase);
-    const numberControls = this.numberControls.sync(editable, Boolean(this.dnd.session?.moved));
+    const hiddenBlockIds = this.dnd.hiddenBlockIds;
+    const fieldControls = this.fieldControls.sync(editable, hiddenBlockIds);
     const pixelsPerUnit = (window.devicePixelRatio || 1) * this.blockScale;
     if (this.canvas.width !== Math.round(this.width * pixelsPerUnit)) {
       this.canvas.width = Math.round(this.width * pixelsPerUnit);
@@ -191,7 +199,8 @@ export class EditorView {
       errorId: this.state.errorBlockId,
       invalidIds: this.state.invalidBlockIds,
       editable,
-      numberControls,
+      fieldControls,
+      hiddenBlockIds,
       previewLayer: this.preview,
       scrollX: this.scrollX,
       scrollY: this.scrollY,
@@ -295,6 +304,10 @@ export class EditorView {
       return false;
     }
     const target = this.defaultInsertTarget(definition);
+    if (kind === "control.else" && !target) {
+      this.toast("先选中一块没有接「否则」的「如果」，再添加「否则」。");
+      return false;
+    }
     const placement = target
       ? { valid: true, target, portType: target.portType }
       : {
@@ -318,6 +331,11 @@ export class EditorView {
   defaultInsertTarget(definition) {
     const { nodes, targets } = this.layout;
     const selected = this.state.selectedBlockId;
+    if (definition.kind === "control.else") {
+      const openings = targets.filter((target) => canConnectToTarget(this.state.schema, definition, target).ok);
+      return openings.find((target) => target.anchorRef === `after:${selected}`)
+        ?? (openings.length === 1 ? openings[0] : null);
+    }
     if (nodes.length === 0) {
       return definition.kind === "event.start" && this.state.root == null ? targets[0] : null;
     }
@@ -499,7 +517,7 @@ export class EditorView {
       return;
     }
     this.cancelFieldEdit();
-    if (field.inlineNumber && this.numberControls.focus(blockId)) {
+    if (this.fieldControls.focus(blockId, fieldName)) {
       return;
     }
     const stageRect = this.stage.getBoundingClientRect();

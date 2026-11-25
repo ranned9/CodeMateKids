@@ -75,6 +75,9 @@ const REQUIRED_IDS = [
   "tutor-input",
   "tutor-submit",
   "tutor-mode-badge",
+  "tutor-speech-button",
+  "tutor-voice-button",
+  "tutor-speech-note",
   "summary-panel",
   "summary-content",
   "summary-variant",
@@ -115,6 +118,35 @@ for (const [id, count] of idCounts) {
     hits += 1;
     process.stderr.write(`frontend/index.html: duplicated id "${id}" (${count})\n`);
   }
+}
+
+// 语音控件在配置可用前显示为不可用，并使用独立的按钮与可访问名称。
+const speechActionsLine = html.match(/<div[^>]*class="tutor-speech-actions"[^>]*>/)?.[0] ?? "";
+const speechNoteLine = (html.match(/<p[^>]*id="tutor-speech-note"[^>]*>/) || [])[0] || "";
+if (!speechActionsLine || speechActionsLine.includes("hidden")) {
+  hits += 1;
+  process.stderr.write(`frontend/index.html: speech actions must be visible before configuration\n`);
+}
+for (const [id, label] of [["tutor-speech-button", "听写"], ["tutor-voice-button", "语音对话"]]) {
+  const tag = html.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+  for (const attribute of [`aria-label="${label}"`, 'aria-pressed="false"', 'aria-disabled="true"', 'type="button"']) {
+    if (!tag.includes(attribute)) {
+      hits += 1;
+      process.stderr.write(`frontend/index.html: ${id} must expose ${attribute}\n`);
+    }
+  }
+}
+if (!speechNoteLine.includes("aria-live")) {
+  hits += 1;
+  process.stderr.write(`frontend/index.html: speech note must be an aria-live region\n`);
+}
+if (!speechNoteLine.includes("hidden")) {
+  hits += 1;
+  process.stderr.write(`frontend/index.html: speech note must default to hidden\n`);
+}
+if (!/maxlength="300"/.test(html)) {
+  hits += 1;
+  process.stderr.write(`frontend/index.html: composer maxlength=300 contract violated\n`);
 }
 
 if (hits > 0) {

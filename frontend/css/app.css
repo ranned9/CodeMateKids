@@ -29,6 +29,7 @@
   --font-caption: 12px;
   --block-scale: 1.12;
   --canvas-height: clamp(360px, 73dvh, 740px);
+  --tutor-panel-height: clamp(300px, 42dvh, 420px);
   --focus-ring: 0 0 0 3px rgba(63, 109, 216, 0.35);
   --header-h: 60px;
   --header-h-compact: 50px;
@@ -196,7 +197,7 @@ button[aria-busy="true"] { cursor: progress; }
 .feedback-column { grid-area: feedback; display: grid; min-width: 0; gap: var(--space-3); }
 .result-panel { overflow-wrap: anywhere; }
 .tutor-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2); }
-.tutor-panel:has(> .tutor-chat:not([hidden])) { min-block-size: clamp(240px, 34dvh, 330px); }
+.tutor-panel:has(> .tutor-chat:not([hidden])) { min-block-size: var(--tutor-panel-height); }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .slot-tabs { display: flex; gap: var(--space-2); }
 
@@ -260,7 +261,7 @@ button[aria-busy="true"] { cursor: progress; }
 .toolbox-block-art { display: block; max-width: 100%; height: auto; pointer-events: none; }
 .toolbox-item:not(.blocked):hover { background: var(--brand-soft); }
 .toolbox-item.is-grabbing { cursor: grabbing; }
-.toolbox-item.is-grabbing:active { transform: translateY(1px); }
+.toolbox-item.has-drag-overlay .toolbox-block-art { opacity: 0; }
 .toolbox-item.blocked::after {
   content: "不能运行";
   position: absolute;
@@ -298,6 +299,38 @@ button[aria-busy="true"] { cursor: progress; }
 }
 .toolbox-chip:focus-visible { outline: 2px solid #1b3f9e; outline-offset: 2px; }
 
+/* 拖动浮层（0.9.0）：挂在 body 的积木图像层，z-index 须高于移除提示层（61）。 */
+.drag-overlay {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 70;
+  pointer-events: none;
+  will-change: transform;
+  filter: drop-shadow(0 10px 16px rgba(34, 55, 96, 0.28));
+}
+.drag-overlay canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  max-width: none;
+}
+/* 收回淡出：CSS 只负责透明度淡出，缩小尺寸由 JS playSettle() 插值，避免两套动画语义重复。 */
+.drag-overlay--settling {
+  animation: drag-overlay-fade 180ms ease forwards;
+}
+@keyframes drag-overlay-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drag-overlay--settling {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -330,40 +363,66 @@ button[aria-busy="true"] { cursor: progress; }
 }
 .canvas-empty[hidden] { display: none; }
 
-.canvas-number-layer {
+.canvas-field-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
-.canvas-number-layer[hidden] { display: none; }
-.canvas-number-control {
+.canvas-field-control {
   position: absolute;
-  display: grid;
-  grid-template-columns: 25% minmax(0, 1fr) 25%;
-  overflow: hidden;
-  border-radius: 6px;
+  border-radius: 999px;
   background: #ffffff;
-  pointer-events: auto;
+  color: #253653;
+  font-size: calc(14px * var(--block-scale));
+  font-weight: 700;
 }
-.canvas-number-control > button,
-.canvas-number-control > input {
+.canvas-field-control > input,
+.canvas-field-control > select {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
   border: 0;
-  border-radius: 0;
-  padding: 0;
+  border-radius: inherit;
+  padding: 0 3px;
   min-width: 0;
   min-height: 0;
   font: inherit;
-  font-size: calc(14px * var(--block-scale));
-  font-weight: 700;
-  color: #253653;
+  color: inherit;
   text-align: center;
+  pointer-events: auto;
 }
-.canvas-number-control > button { background: #eaf0fa; cursor: pointer; }
-.canvas-number-control > button:hover:enabled { background: #d5e2f8; }
-.canvas-number-control > button:disabled { opacity: 0.45; cursor: default; }
-.canvas-number-control > input { width: 100%; background: #ffffff; appearance: textfield; }
-.canvas-number-control > input::-webkit-inner-spin-button { appearance: none; }
-.canvas-number-control > :focus-visible { outline: 2px solid #2455b1; outline-offset: -2px; }
+.canvas-field-control > input { background: #ffffff; appearance: textfield; }
+.canvas-field-control > input:disabled { opacity: 1; }
+.canvas-field-control > input::-webkit-inner-spin-button { appearance: none; }
+.canvas-field-control > select {
+  appearance: none;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+}
+.canvas-field-control > select:disabled { cursor: default; }
+.canvas-field-control option { color: #253653; background: #ffffff; }
+.canvas-field-control > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-right: calc(16px * var(--block-scale));
+}
+.canvas-field-control > span::after {
+  content: "";
+  position: absolute;
+  right: calc(8px * var(--block-scale));
+  top: calc(50% - 3px);
+  width: 4px;
+  height: 4px;
+  border: solid #52627a;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.canvas-field-control > :focus-visible { outline: 2px solid #2455b1; outline-offset: -2px; }
 
 .mirror-host {
   position: absolute;
@@ -498,11 +557,76 @@ button[aria-busy="true"] { cursor: progress; }
 .tutor-chat-reply { background: #f7f9ff; border: 1px solid #e0e8f7; }
 .tutor-chat-meta, .tutor-chat-meta > summary { font-size: var(--font-caption); color: var(--ink-soft); }
 .tutor-chat-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: start; }
-.tutor-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; font-size: var(--font-small); }
-.tutor-composer label, .tutor-composer p { grid-column: 1 / -1; }
+.tutor-composer { display: grid; gap: 6px; font-size: var(--font-small); }
 .tutor-composer p { margin: 0; }
-.tutor-composer textarea { resize: vertical; min-height: 50px; max-height: 104px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
-.tutor-composer button { align-self: end; }
+.tutor-composer-box {
+  display: grid;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+.tutor-composer-box:has(textarea:focus-visible) { border-color: var(--brand); box-shadow: var(--focus-ring); }
+.tutor-composer textarea { resize: vertical; min-width: 0; min-height: 44px; max-height: 104px; border: 0; padding: 4px; color: inherit; background: transparent; font: inherit; }
+.tutor-composer textarea:focus-visible { box-shadow: none; }
+.tutor-composer-actions, .tutor-speech-actions { display: flex; align-items: center; gap: 6px; }
+.tutor-composer-actions { justify-content: flex-end; }
+.tutor-speech-note { color: var(--ink-soft); font-size: var(--font-caption); }
+.speech-tool { position: relative; display: flex; }
+.speech-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  touch-action: manipulation;
+}
+.speech-button:hover { background: var(--brand-soft); }
+.speech-button-voice { background: var(--brand); color: var(--panel); }
+.speech-button-voice:hover { background: #305bbf; }
+.speech-button[aria-pressed="true"] { background: var(--danger-soft); color: var(--danger); }
+.speech-button[aria-disabled="true"] { background: var(--paper); color: var(--ink-soft); cursor: default; }
+.speech-button[aria-pressed="true"] .speech-glyph { display: none; }
+.speech-button[aria-pressed="true"]::before { content: ""; width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
+.speech-mic {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(currentColor, currentColor) center bottom / 2px 5px no-repeat,
+    linear-gradient(currentColor, currentColor) center bottom / 8px 2px no-repeat;
+}
+.speech-mic::before, .speech-mic::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); }
+.speech-mic::before { top: 1px; width: 7px; height: 12px; border: 2px solid currentColor; border-radius: 8px; }
+.speech-mic::after { top: 8px; width: 15px; height: 8px; border: 2px solid currentColor; border-top: 0; border-radius: 0 0 8px 8px; }
+.speech-wave { display: flex; align-items: center; gap: 2px; }
+.speech-wave i { width: 2px; height: 7px; border-radius: 2px; background: currentColor; }
+.speech-wave i:nth-child(2), .speech-wave i:nth-child(4) { height: 13px; }
+.speech-wave i:nth-child(3) { height: 20px; }
+.speech-tooltip {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% + 7px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+  color: var(--panel);
+  font-size: var(--font-caption);
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+.speech-tooltip kbd { padding: 1px 4px; border: 1px solid #ffffff55; border-radius: 4px; font: inherit; }
+.speech-tool:hover .speech-tooltip, .speech-tool:focus-within .speech-tooltip { visibility: visible; }
+.speech-tool:has([aria-pressed="true"]) .speech-tooltip { visibility: hidden; }
 
 .summary-panel {
   padding: 0;
@@ -552,6 +676,11 @@ dialog::backdrop { background: rgba(20, 33, 56, 0.42); }
 .task-card.active { border-color: #b8ccf5; background: #f4f8ff; }
 .task-card h3 { margin: 0 0 6px; font-size: var(--font-body); }
 .task-card p { margin: 4px 0; font-size: var(--font-small); line-height: 1.6; }
+.task-card-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.task-card-heading h3 { flex: 1 1 auto; }
+.task-read-button { min-height: 30px; padding: 3px 8px; white-space: nowrap; font-size: var(--font-caption); }
+.task-read-button[aria-disabled="true"] { color: var(--ink-soft); }
+.task-reader-status:empty { margin: 0; }
 .task-tag { font-size: var(--font-caption); color: var(--ink-soft); background: #eef2f9; padding: 2px 7px; border-radius: 999px; margin-left: 6px; }
 .task-card .blocked { color: var(--danger); }
 .theme-list { margin-top: 12px; font-size: 12px; color: var(--ink-soft); }
@@ -648,7 +777,10 @@ dialog::backdrop { background: rgba(20, 33, 56, 0.42); }
 }
 
 @media (max-height: 759px) {
-  :root { --canvas-height: clamp(340px, calc(100dvh - 170px), 580px); }
+  :root {
+    --canvas-height: clamp(340px, calc(100dvh - 170px), 580px);
+    --tutor-panel-height: clamp(260px, 38dvh, 300px);
+  }
   .app-header {
     min-height: var(--header-h-compact);
     padding-top: 2px;

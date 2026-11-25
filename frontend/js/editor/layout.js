@@ -8,10 +8,10 @@ export const LAYOUT = {
   WIDTH: 272,
   HEADER: 36,
   FIELD: 24,
-  CAP: 12,
-  GAP: 10,
-  INDENT: 22,
-  BODY_MIN: 34,
+  CAP: 10,
+  GAP: 4,
+  INDENT: 18,
+  BODY_MIN: 30,
   BODY_PAD: 6,
   START_X: STACK_START.x,
   START_Y: STACK_START.y,
@@ -19,9 +19,26 @@ export const LAYOUT = {
 
 const DEFAULT_VIEWPORT = { w: 720, h: 460, scrollX: 0, scrollY: 0 };
 
+const COMPACT_BLOCKS = {
+  "event.start": { width: 98 },
+  "motion.move": { width: 98 },
+  "motion.turn": { width: 132, labels: [["转弯", 12]], fields: { degrees: [52, 64] } },
+  "control.repeat": { width: 132, labels: [["重复", 12], ["次", 105]], fields: { times: [49, 49] } },
+  "control.if": {
+    width: 206,
+    labels: [["如果 已走", 12], ["步", 180]],
+    fields: { operator: [81, 39], threshold: [126, 48] },
+  },
+  "control.else": { width: 116 },
+};
+
 export function numberControlRect({ x, y, w, h }) {
   const labelWidth = Math.min(43, Math.floor(w * 0.38));
   return { x: x + labelWidth, y: y + 2, w: Math.min(106, w - labelWidth - 4), h: h - 4 };
+}
+
+export function fieldControlRect(field) {
+  return field.inHeader ? field.rect : numberControlRect(field.rect);
 }
 
 /**
@@ -55,7 +72,7 @@ export function computeLayout(root, definitions, viewport = DEFAULT_VIEWPORT) {
       collector.group = group;
       collector.order = 0;
       for (const node of bodyStatements([stack.root])) {
-        y = layoutBlock(node, stack.x, y, blockWidth, 0, workspaceOwnerId(root, stack), definitions, collector);
+        y = layoutBlock(node, stack.x, y, blockWidth, 0, workspaceOwnerId(root, stack), definitions, collector).bottom;
       }
       height = Math.max(height, y + 40);
     }
@@ -139,7 +156,6 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
       header: { x, y, w: width, h: unknownHeight },
       bodyBox: null,
       foot: { x, y: y + unknownHeight, w: width, h: 0 },
-      outline: null,
     };
     collector.blocks.push({
       node,
@@ -155,14 +171,22 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
       unknown: true,
     });
     collector.slots.push({ type: "next", ownerId: node.blockId, x, y: y + 44, w: width, h: 12, depth });
-    return y + unknownHeight + LAYOUT.GAP;
+    return { bottom: y + unknownHeight + LAYOUT.GAP, width };
   }
 
   const ports = definition.ports || [];
   const hasBody = ports.some((port) => port.portType === "statement-body");
   const hasNext = ports.some((port) => port.portType === "statement-next");
+  const nestedNumber = node.kind === "value.number" && ownerId.startsWith("expr:");
+  const compact = nestedNumber
+    ? { width, height: 30, labels: [], fields: { value: [4, width - 8] } }
+    : COMPACT_BLOCKS[node.kind];
+  const labels = compact?.labels ? [...compact.labels] : null;
+  const fallbackWidth = width;
+  width = compact?.width ?? width;
   const fieldDefinitions = definition.fields || [];
-  let fieldY = y + LAYOUT.HEADER;
+  const titleHeight = compact?.height ?? LAYOUT.HEADER;
+  let fieldY = y + titleHeight;
   const fields = [];
 
   for (const field of fieldDefinitions) {
@@ -170,30 +194,39 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
     const nestedValue = Boolean(value && typeof value === "object");
     const inlineNumber = (node.kind === "value.number" && field.name === "value")
       || (field.acceptsNumberBlock && !nestedValue);
-    const rect = {
+    const inline = compact?.fields?.[field.name];
+    const rect = inline ? {
+      x: x + inline[0],
+      y: y + (nestedValue ? 3 : 5),
+      w: inline[1],
+      h: nestedValue ? 30 : titleHeight - 10,
+    } : {
       x: x + 12,
       y: fieldY + 2,
       w: width - 24,
       h: inlineNumber ? 30 : LAYOUT.FIELD - 6,
     };
     if (field.valueType === "expression" || (field.acceptsNumberBlock && nestedValue)) {
-      const inset = Math.min(12, Math.max(0, (width - 120) / 2));
-      rect.x = x + inset;
-      rect.w = width - 2 * inset;
-      rect.y = fieldY + 17;
-      rect.h = 23;
+      if (!inline) {
+        const inset = Math.min(12, Math.max(0, (width - 120) / 2));
+        rect.x = x + inset;
+        rect.w = width - 2 * inset;
+        rect.y = fieldY + 17;
+        rect.h = 23;
+      }
       if (nestedValue) {
-        const childBottom = layoutBlock(
+        const child = layoutBlock(
           value, rect.x, rect.y, rect.w, depth + 1, `expr:${node.blockId}`, definitions, collector,
         );
-        rect.h = childBottom - LAYOUT.GAP - rect.y;
+        rect.h = child.bottom - LAYOUT.GAP - rect.y;
+        if (inline && field.name === "degrees") labels.push(["°", inline[0] + inline[1] + 3]);
       }
     }
     if (field.valueType === "expression" || field.acceptsNumberBlock) {
       collector.slots.push({ type: "slot", ownerId: node.blockId, field: field.name, ...rect, depth });
     }
-    fields.push({ ...field, rect, nestedValue, inlineNumber });
-    fieldY = rect.y + rect.h + 4;
+    fields.push({ ...field, rect, nestedValue, inlineNumber, inHeader: Boolean(inline) });
+    if (!inline) fieldY = rect.y + rect.h + 4;
   }
   const headerH = fieldY - y;
 
@@ -201,18 +234,20 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
   let contentY = y + headerH;
   if (hasBody) {
     const childX = x + LAYOUT.INDENT;
-    const childWidth = Math.max(120, width - LAYOUT.INDENT - 4);
-    const childStartY = y + headerH + LAYOUT.BODY_PAD;
+    const childWidth = Math.max(120, fallbackWidth - LAYOUT.INDENT - 4);
+    const childStartY = y + headerH + LAYOUT.GAP;
     let childY = childStartY;
     for (const child of bodyStatements(node.body)) {
-      childY = layoutBlock(child, childX, childY, childWidth, depth + 1, node.blockId, definitions, collector);
+      const placed = layoutBlock(child, childX, childY, childWidth, depth + 1, node.blockId, definitions, collector);
+      childY = placed.bottom;
+      width = Math.max(width, LAYOUT.INDENT + placed.width + LAYOUT.BODY_PAD);
     }
     const bodyHeight = Math.max(LAYOUT.BODY_MIN, childY - childStartY);
     contentY = childStartY + bodyHeight;
     bodyBox = {
       x: childX - LAYOUT.BODY_PAD,
       y: y + headerH,
-      w: width - LAYOUT.INDENT + 4,
+      w: width - LAYOUT.INDENT + LAYOUT.BODY_PAD,
       h: contentY - (y + headerH),
     };
     collector.slots.push({
@@ -227,31 +262,19 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
   }
 
   const footY = contentY;
-  const height = footY + LAYOUT.CAP - y;
-  const foot = { x, y: footY, w: width, h: LAYOUT.CAP };
+  const capHeight = hasBody || !compact ? LAYOUT.CAP : 0;
+  const height = footY + capHeight - y;
+  const foot = { x, y: footY, w: width, h: capHeight };
   const header = { x, y, w: width, h: headerH };
-  const outline = hasBody
-    ? [
-        { x, y },
-        { x: x + width, y },
-        { x: x + width, y: footY },
-        { x: x + width - LAYOUT.CAP, y: footY },
-        { x: x + width - LAYOUT.CAP, y: y + headerH },
-        { x: x + LAYOUT.INDENT - LAYOUT.BODY_PAD, y: y + headerH },
-        { x: x + LAYOUT.INDENT - LAYOUT.BODY_PAD, y: footY },
-        { x, y: footY },
-      ]
-    : null;
-
   collector.sections[node.blockId] = {
     header,
     bodyBox,
     foot,
-    outline,
   };
   collector.nodes.push({
     blockId: node.blockId,
     kind: node.kind,
+    nextKind: node.next?.kind,
     depth,
     ownerId,
     group: collector.group,
@@ -263,6 +286,7 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
     isContainer: hasBody,
     parentBlockId,
     fields,
+    labels,
     inputs: node.inputs,
     hasBodyChildren: Boolean(node.body?.length),
     portMarks: ports.map((port) => ({ portType: port.portType })),
@@ -292,7 +316,7 @@ function layoutBlock(node, x, y, width, depth, ownerId, definitions, collector) 
       depth,
     });
   }
-  return y + height + LAYOUT.GAP;
+  return { bottom: y + height + LAYOUT.GAP, width };
 }
 
 export function findSlotAt(slots, point, radius = 24) {

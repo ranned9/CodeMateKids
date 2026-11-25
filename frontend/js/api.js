@@ -72,15 +72,57 @@ export async function getJson(path, studentId = null) {
 }
 
 /** @param {string} path @param {any} body */
-export async function postJson(path, body, studentId = null) {
+export async function postJson(path, body, studentId = null, signal = null) {
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (studentId) headers["X-CMK-Student-Id"] = studentId;
   const response = await fetch(path, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
   return unwrap(response);
+}
+
+const SPEECH_TIMEOUT_MS = 12000;
+
+function speechTimeout(signal) {
+  const timeout = AbortSignal.timeout(SPEECH_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+/** @param {string} path @param {any} body @param {string|null} studentId @param {AbortSignal|null} signal */
+export function postSpeech(path, body, studentId = classroomStudent, signal = null) {
+  return postJson(path, body, studentId, speechTimeout(signal));
+}
+
+/**
+ * 合成请求双形态分流：audio/mpeg → Blob；application/json → unwrap 语义。
+ * @param {string} turnId @param {object} scope @param {string|null} studentId @param {AbortSignal|null} signal
+ * @returns {Promise<{playable:true,blob:Blob}|{playable:false,reasonCode:string}>}
+ */
+export async function fetchSpeechSynthesize(turnId, scope, studentId = classroomStudent, signal = null) {
+  return fetchSpeechAudio("/api/v1/speech/synthesize", { turnId, scope }, studentId, signal);
+}
+
+async function fetchSpeechAudio(path, body, studentId, signal) {
+  const headers = { "Content-Type": "application/json", Accept: "audio/mpeg, application/json" };
+  if (studentId) headers["X-CMK-Student-Id"] = studentId;
+  const response = await fetch(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: speechTimeout(signal),
+  });
+  const contentType = response.headers.get("Content-Type") || "";
+  if (response.ok && contentType.startsWith("audio/")) {
+    return {
+      playable: true,
+      blob: await response.blob(),
+      hasMore: response.headers.get("X-CMK-Speech-More") === "1",
+    };
+  }
+  return await unwrap(response);
 }
 
 export const API = {
@@ -101,6 +143,12 @@ export const API = {
     postJson(`/api/v1/runs/${requestId}/step`, { cancelToken, seq }, studentId),
   hint: (payload) => postJson("/api/v1/tutor/hints", payload, classroomStudent),
   chat: (payload, studentId = classroomStudent) => postJson("/api/v1/tutor/chat", payload, studentId),
+  speechRecognize: (audioBase64, signal = null, studentId = classroomStudent) =>
+    postSpeech("/api/v1/speech/recognize", { audioBase64 }, studentId, signal),
+  speechSynthesize: (turnId, scope, signal = null, studentId = classroomStudent) =>
+    fetchSpeechSynthesize(turnId, scope, studentId, signal),
+  speechTask: (taskId, contentVersion, part, signal, studentId = classroomStudent) =>
+    fetchSpeechAudio("/api/v1/speech/task", { taskId, contentVersion, part }, studentId, signal),
   students: () => getJson("/api/v1/students"),
   createStudent: (displayName) => postJson("/api/v1/students", { displayName }),
   studentProgress: (studentId) => getJson(`/api/v1/students/${encodeURIComponent(studentId)}/progress`),

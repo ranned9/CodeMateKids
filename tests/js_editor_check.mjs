@@ -17,6 +17,8 @@ const connector = await import(asUrl("frontend/js/editor/connector.js"));
 const layoutModule = await import(asUrl("frontend/js/editor/layout.js"));
 const targetsModule = await import(asUrl("frontend/js/editor/targets.js"));
 const dndModule = await import(asUrl("frontend/js/editor/dnd.js"));
+const renderModule = await import(asUrl("frontend/js/editor/render.js"));
+const { createDragOverlay, LIFT_MS, SETTLE_MS } = await import(asUrl("frontend/js/editor/drag-overlay.js"));
 const { planWorkspaceDrop } = await import(asUrl("frontend/js/editor/workspace.js"));
 const undoModule = await import(asUrl("frontend/js/editor/undo.js"));
 const { EditorView } = await import(asUrl("frontend/js/views/canvas.js"));
@@ -150,6 +152,10 @@ for (const node of richLayout.nodes) {
 
 const repeatLayoutNode = richLayout.nodes.find((node) => node.blockId === repeatId);
 const moveLayoutNode = richLayout.nodes.find((node) => node.blockId === richMoveId);
+const repeatHeader = richLayout.sections[repeatId].header;
+const timesRect = repeatLayoutNode.fields[0].rect;
+assert.ok(timesRect.y >= repeatHeader.y && timesRect.y + timesRect.h <= repeatHeader.y + repeatHeader.h);
+assert.ok(moveLayoutNode.rect.w < repeatLayoutNode.rect.w);
 assert.equal(
   layoutModule.pickNode(richLayout, {
     x: moveLayoutNode.rect.x + 10,
@@ -201,6 +207,12 @@ assert.ok(richLayout.targets.some((target) => target.id === "root@start"));
 assert.ok(richLayout.targets.some((target) => target.id === `root@after:${root.blockId}`));
 assert.ok(richLayout.targets.some((target) => target.id === `body:${repeatId}@start`));
 assert.ok(richLayout.targets.some((target) => target.id === `body:${repeatId}@after:${richMoveId}`));
+
+const afterRepeat = targetsModule.resolveDropTarget(richLayout, {
+  x: moveLayoutNode.rect.x + 20,
+  y: repeatLayoutNode.rect.y + repeatLayoutNode.rect.h + 4,
+}, { definition: definitions.get("motion.move"), schema });
+assert.equal(afterRepeat.target.id, `root@after:${repeatId}`);
 
 assert.deepEqual(targetsModule.normalizeTargetId("root@start"), {
   containerRef: "root",
@@ -443,14 +455,194 @@ const editorStub = {
   isInsideSubtree: () => false,
   announceDrag: () => {},
 };
+// 0.9.0（T-EP-10）：画布预览重绘合并到 rAF——stub 记录挂起回调，由 flushFrames() 手动驱动，
+// 以便断言"每帧 ≤1 次调度"与挂起帧取消语义。
+const rafPending = new Map();
+let rafSeq = 0;
+const requestAnimationFrameStub = (callback) => {
+  rafSeq += 1;
+  rafPending.set(rafSeq, callback);
+  return rafSeq;
+};
+const cancelAnimationFrameStub = (handle) => {
+  cancelFrameCount += 1;
+  rafPending.delete(handle);
+};
+const flushFrames = () => {
+  const pending = [...rafPending.entries()];
+  rafPending.clear();
+  for (const [, callback] of pending) {
+    callback();
+  }
+};
 const dnd = new dndModule.DndController(editorStub, {
   toolbox,
   env: {
     window: windowRecord,
-    requestAnimationFrame: () => 1,
-    cancelAnimationFrame: () => {
-      cancelFrameCount += 1;
+    requestAnimationFrame: requestAnimationFrameStub,
+    cancelAnimationFrame: cancelAnimationFrameStub,
+  },
+});
+
+// ===== 0.9.0 浮层测试基建（T-EP-20）：stub document/window/canvas，沿用 env 注入范式 =====
+const stub2dContext = new Proxy({}, {
+  get(target, prop) {
+    if (prop === "measureText") {
+      return () => ({ width: 24 });
+    }
+    if (typeof prop === "symbol") {
+      return undefined;
+    }
+    if (!(prop in target)) {
+      target[prop] = () => {};
+    }
+    return target[prop];
+  },
+  set(target, prop, value) {
+    target[prop] = value;
+    return true;
+  },
+});
+
+const makeStubCanvas = () => ({
+  tagName: "canvas",
+  width: 0,
+  height: 0,
+  style: {},
+  children: [],
+  parentNode: null,
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  },
+  replaceChildren(...next) {
+    for (const child of this.children) {
+      child.parentNode = null;
+    }
+    this.children = [...next];
+    for (const child of this.children) {
+      child.parentNode = this;
+    }
+  },
+  get firstChild() {
+    return this.children[0] ?? null;
+  },
+  remove() {
+    this.parentNode?.removeChild?.(this);
+    this.parentNode = null;
+  },
+  getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+  getContext: () => stub2dContext,
+});
+
+const makeStubElement = (tag) => ({
+  tagName: tag,
+  className: "",
+  style: {},
+  children: [],
+  parentNode: null,
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  },
+  removeChild(child) {
+    const index = this.children.indexOf(child);
+    if (index >= 0) {
+      this.children.splice(index, 1);
+    }
+    child.parentNode = null;
+    return child;
+  },
+  replaceChildren(...next) {
+    for (const child of this.children) {
+      child.parentNode = null;
+    }
+    this.children = [...next];
+    for (const child of this.children) {
+      child.parentNode = this;
+    }
+  },
+  get firstChild() {
+    return this.children[0] ?? null;
+  },
+  remove() {
+    this.parentNode?.removeChild?.(this);
+    this.parentNode = null;
+  },
+  classList: {
+    add() {},
+    remove() {},
+  },
+});
+
+const stubBody = {
+  tagName: "BODY",
+  style: {},
+  children: [],
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  },
+  removeChild(child) {
+    const index = this.children.indexOf(child);
+    if (index >= 0) {
+      this.children.splice(index, 1);
+    }
+    child.parentNode = null;
+    return child;
+  },
+  get firstChild() {
+    return this.children[0] ?? null;
+  },
+  replaceChildren() {
+    this.children = [];
+  },
+};
+const stubDocument = {
+  body: stubBody,
+  createElement: (tag) => (tag === "canvas" ? makeStubCanvas() : makeStubElement(tag)),
+};
+const overlayElementCount = () => stubBody.children.length;
+
+const makeStubWindow = () => {
+  const timers = new Map();
+  return {
+    timers,
+    addEventListener() {},
+    removeEventListener() {},
+    setTimeout(callback) {
+      const handle = timers.size + 1;
+      timers.set(handle, callback);
+      return handle;
     },
+    clearTimeout(handle) {
+      timers.delete(handle);
+    },
+  };
+};
+
+const overlayRaf = { seq: 0, pending: new Map() };
+const overlayRequestAnimationFrame = (callback) => {
+  overlayRaf.seq += 1;
+  overlayRaf.pending.set(overlayRaf.seq, callback);
+  return overlayRaf.seq;
+};
+const overlayCancelAnimationFrame = (handle) => {
+  overlayRaf.pending.delete(handle);
+};
+
+// 带浮层注入面的 DndController（EP-AC-02/03/04/05/06 断言用）。
+const overlayDnd = new dndModule.DndController(editorStub, {
+  toolbox,
+  env: {
+    window: makeStubWindow(),
+    document: stubDocument,
+    requestAnimationFrame: overlayRequestAnimationFrame,
+    cancelAnimationFrame: overlayCancelAnimationFrame,
+    matchMedia: () => ({ matches: false }),
   },
 });
 
@@ -567,12 +759,42 @@ dnd.onMove({
   clientX: dndAfterRepeatTarget.rect.x + 4,
   clientY: dndAfterRepeatTarget.rect.y + 4,
 });
+flushFrames();
 assert.equal(dnd.session.lastResult.target.id, dndAfterRepeatTarget.id);
 dnd.onUp({ pointerId: 1, clientX: startPoint.x, clientY: startPoint.y });
 assert.equal(commitCalls.length, 1);
 assert.equal(commitCalls[0][2].target.id, dndBodyStartTarget.id);
 assert.equal(commitPreview, commitCalls[0][2]);
 assert.equal(dnd.session, null);
+
+// 指针偏出连接位时，预览与松手提交采用同一吸附范围。
+for (const target of [dndAfterRepeatTarget, dndBodyStartTarget]) {
+  const point = { clientX: target.rect.x + target.rect.w + 20, clientY: target.rect.y + 2 };
+  dnd.startToolboxDrag("motion.move", { pointerId: 41, clientX: -25, clientY: 10 }, toolboxSource);
+  dnd.onMove({ pointerId: 41, ...point });
+  flushFrames();
+  assert.equal(dnd.session.lastResult.target.id, target.id);
+  dnd.onUp({ pointerId: 41, ...point });
+  assert.equal(commitCalls.at(-1)[2].target.id, target.id);
+}
+
+// 位于循环底边时，优先吸附到较近的外部连接位。
+dnd.startToolboxDrag("motion.move", { pointerId: 42, clientX: -25, clientY: 10 }, toolboxSource);
+dnd.onUp({
+  pointerId: 42,
+  clientX: moveLayoutNode.rect.x + 20,
+  clientY: dndAfterRepeatTarget.rect.y - 2,
+});
+assert.equal(commitCalls.at(-1)[2].target.id, dndAfterRepeatTarget.id);
+
+dnd.startToolboxDrag("motion.move", { pointerId: 43, clientX: -25, clientY: 10 }, toolboxSource);
+dnd.onUp({
+  pointerId: 43,
+  clientX: dndAfterRepeatTarget.rect.x + dndAfterRepeatTarget.rect.w + 25,
+  clientY: dndAfterRepeatTarget.rect.y + 2,
+});
+assert.equal(commitCalls.at(-1)[2].target, null);
+assert.ok(commitCalls.at(-1)[2].freePosition);
 
 commitCalls = [];
 toastCalls = [];
@@ -713,8 +935,248 @@ assert.deepEqual(model.programWorkspace(JSON.parse(JSON.stringify(savedWorkspace
 
 editorStub.state.root = secondScript.root;
 editorStub.layout = layoutModule.computeLayout(secondScript.root, definitions);
+
+// ===== T-EP-19（0.9.0 D-04）：{16,16} 固定偏移断言改写为统一抓取公式断言 =====
+// 正常路径：按下缩略图中心（ratio = 0.5），自由落点 = point − (ratio × 画面布局尺寸)。
+const thumbnail = makeStubCanvas();
+const thumbInsets = renderModule.drawToolboxBlock(thumbnail, numberDefinition);
+const numberRect = layoutModule.computeLayout(
+  [{ x: 0, y: 0, root: model.createBlock(numberDefinition, "drag-size") }],
+  definitions,
+).nodes[0].rect;
+const grabCenter = {
+  ratioX: 0.5,
+  ratioY: 0.5,
+  startWidth: thumbnail.width * (1 - 2 * thumbInsets.insetX),
+  startHeight: thumbnail.height * (1 - 2 * thumbInsets.insetY),
+};
+const grabEdge = { ...grabCenter, ratioX: 1, ratioY: 1 };
+
+overlayDnd.startToolboxDrag("value.number", { pointerId: 60, ...toolboxPoint }, toolboxSource, grabCenter);
+assert.equal(parseFloat(stubBody.firstChild.style.width), grabCenter.startWidth);
+assert.ok(grabCenter.startWidth < overlayDnd.session.targetSize.w);
+assert.deepEqual(overlayDnd.session.targetSize, { w: numberRect.w, h: numberRect.h });
+assert.equal(stubBody.firstChild.firstChild.width, numberRect.w);
+overlayDnd.onUp({ pointerId: 60, clientX: 360, clientY: 390 });
+assert.deepEqual(commitCalls.at(-1)[2].freePosition, {
+  x: 360 - grabCenter.ratioX * numberRect.w,
+  y: 390 - grabCenter.ratioY * numberRect.h,
+});
+
+// 边缘按住（ratio ≈ 1）：确认公式方向为减而非加。
+overlayDnd.startToolboxDrag("value.number", { pointerId: 61, ...toolboxPoint }, toolboxSource, grabEdge);
+overlayDnd.onUp({ pointerId: 61, clientX: 360, clientY: 390 });
+assert.deepEqual(commitCalls.at(-1)[2].freePosition, {
+  x: 360 - grabEdge.ratioX * numberRect.w,
+  y: 390 - grabEdge.ratioY * numberRect.h,
+});
+assert.equal(overlayElementCount(), 0);
+
+// 异常路径断言（stub 未提供 grabInfo 且无 document 注入）：退化 {16,16} 兜底，非正常行为。
 dnd.startToolboxDrag("value.number", { pointerId: 20, ...toolboxPoint }, toolboxSource);
 dnd.onUp({ pointerId: 20, clientX: 360, clientY: 390 });
 assert.deepEqual(commitCalls.at(-1)[2].freePosition, { x: 344, y: 374 });
+
+// ===== T-EP-20（EP-AC-02）：浮层生命周期 =====
+// 切回 richRoot 上下文：后续画布来源用例的 blockId 与目标引用均属于 richLayout 域。
+editorStub.state.root = richRoot;
+editorStub.layout = richLayout;
+// 创建后浮层在 body；提交替换后移除；取消清理后移除；任一路径后无残留元素。
+overlayDnd.startToolboxDrag("motion.move", { pointerId: 62, clientX: 20, clientY: 20 }, toolboxSource, grabCenter);
+assert.equal(overlayDnd.session.overlayPhase, "lifting");
+assert.equal(overlayElementCount(), 1);
+overlayDnd.onMove({ pointerId: 62, clientX: 400, clientY: 300 });
+assert.equal(overlayElementCount(), 1);
+overlayDnd.onUp({ pointerId: 62, clientX: startPoint.x, clientY: startPoint.y });
+assert.equal(commitCalls.at(-1)[2].target.id, dndBodyStartTarget.id);
+assert.equal(overlayDnd.session, null);
+assert.equal(overlayElementCount(), 0);
+
+overlayDnd.startToolboxDrag("motion.move", { pointerId: 63, clientX: 20, clientY: 20 }, toolboxSource, grabCenter);
+overlayDnd.onCancel({ pointerId: 63 });
+assert.equal(overlayElementCount(), 0);
+
+// 重复 destroy 幂等（浮层模块单元级）：二次调用不抛错、body 元素计数不变。
+const unitOverlay = createDragOverlay(
+  {
+    document: stubDocument,
+    window: makeStubWindow(),
+    requestAnimationFrame: overlayRequestAnimationFrame,
+    cancelAnimationFrame: overlayCancelAnimationFrame,
+  },
+  {
+    image: () => {
+      const canvas = makeStubCanvas();
+      renderModule.drawOverlayImage(canvas, { definition: moveDefinition });
+      return canvas;
+    },
+    grabRatio: { x: 0.5, y: 0.5 },
+    startSize: { w: 40, h: 20 },
+    targetSize: { w: 80, h: 40 },
+    reducedMotion: true,
+  },
+);
+assert.ok(unitOverlay);
+assert.equal(unitOverlay.state(), "active");
+assert.equal(overlayElementCount(), 1);
+unitOverlay.destroy();
+assert.equal(unitOverlay.state(), "destroyed");
+assert.doesNotThrow(() => unitOverlay.destroy());
+assert.equal(overlayElementCount(), 0);
+
+// ===== T-EP-20（EP-AC-04）：移除预览范围 =====
+// 范围 = removalScopeIds() 输出：被删块 + 体内子块，不含 next 链后续。
+const repeatScope = model.removalScopeIds(richRoot, repeatId);
+assert.deepEqual([...repeatScope].sort(), [repeatId, richMoveId].sort());
+assert.equal(repeatScope.has(printId), false);
+const nestedScope = model.removalScopeIds(outerStart, outerRepeat.blockId);
+assert.deepEqual(
+  [...nestedScope].sort(),
+  [outerRepeat.blockId, innerRepeat.blockId, innerMove.blockId].sort(),
+);
+assert.equal(model.removalScopeIds(richRoot, "missing").size, 0);
+
+// 画布来源拖容器进入移除区：浮层成像范围与 removalScopeIds() 一致；离开恢复整组；边界往返一致。
+const repeatRect = richLayout.nodes.find((node) => node.blockId === repeatId).rect;
+overlayDnd.startBlockDrag(repeatId, {
+  pointerId: 64, clientX: repeatRect.x + 20, clientY: repeatRect.y + 14,
+});
+overlayDnd.onMove({ pointerId: 64, clientX: 300, clientY: 130 });
+assert.equal(overlayDnd.session.overlayPhase, "following");
+assert.equal(overlayElementCount(), 1);
+assert.equal(overlayDnd.hiddenBlockIds.has(printId), true);
+overlayDnd.onMove({ pointerId: 64, ...toolboxPoint });
+assert.equal(overlayDnd.session.overlayPhase, "remove-preview");
+assert.deepEqual([...overlayDnd.session.removalScope].sort(), [repeatId, richMoveId].sort());
+assert.deepEqual(overlayDnd.hiddenBlockIds, repeatScope);
+assert.equal(
+  stubBody.firstChild.style.transform,
+  `translate(${toolboxPoint.clientX - 20}px, ${toolboxPoint.clientY - 14}px)`,
+);
+const pendingPreview = overlayDnd.session.frame;
+const previewsBeforeRemovalFrame = previewCalls.length;
+const flushPendingPreview = overlayRaf.pending.get(pendingPreview);
+overlayRaf.pending.delete(pendingPreview);
+flushPendingPreview();
+assert.equal(previewCalls.length, previewsBeforeRemovalFrame);
+overlayDnd.onMove({ pointerId: 64, clientX: 300, clientY: 130 });
+assert.equal(overlayDnd.session.overlayPhase, "following");
+assert.equal(overlayDnd.hiddenBlockIds.has(printId), true);
+overlayDnd.onCancel({ pointerId: 64 });
+assert.equal(overlayElementCount(), 0);
+assert.equal(overlayDnd.hiddenBlockIds, null);
+
+const deletesBeforeQuickRelease = deletedBlocks.length;
+overlayDnd.startBlockDrag(repeatId, {
+  pointerId: 164, clientX: repeatRect.x + 20, clientY: repeatRect.y + 14,
+});
+overlayDnd.onUp({ pointerId: 164, ...toolboxPoint });
+assert.equal(deletedBlocks.length, deletesBeforeQuickRelease + 1);
+assert.equal(overlayDnd.settlingOverlay.state(), "settling");
+const removalBitmap = stubBody.firstChild.firstChild;
+assert.ok(removalBitmap.height > repeatRect.h);
+assert.equal(parseFloat(stubBody.firstChild.style.height), repeatRect.h);
+assert.ok(Math.abs(parseFloat(removalBitmap.style.height) / 100 * repeatRect.h - removalBitmap.height) < 0.01);
+overlayDnd.cancel("context");
+assert.equal(overlayElementCount(), 0);
+
+// ===== T-EP-20（EP-AC-05）：pointerup 提交前复核 =====
+// 会话进行中变只读后松手：不提交、零事务、无动画、浮层清除（与 begin() 门禁构成双防线）。
+overlayDnd.startBlockDrag(richMoveId, { pointerId: 65, clientX: 200, clientY: 120 });
+overlayDnd.onMove({ pointerId: 65, clientX: 300, clientY: 130 });
+editorStub.state.readonly = true;
+const commitCountBefore = commitCalls.length;
+const deleteCountBefore = deletedBlocks.length;
+overlayDnd.onUp({ pointerId: 65, clientX: 300, clientY: 130 });
+assert.equal(commitCalls.length, commitCountBefore);
+assert.equal(deletedBlocks.length, deleteCountBefore);
+assert.equal(overlayDnd.session, null);
+assert.equal(overlayElementCount(), 0);
+editorStub.state.readonly = false;
+
+// 运行态下松手：同样按取消清理（复核失败不得产生事务、不得播放动画）。
+overlayDnd.startBlockDrag(richMoveId, { pointerId: 66, clientX: 200, clientY: 120 });
+overlayDnd.onMove({ pointerId: 66, clientX: 300, clientY: 130 });
+editorStub.state.phase = "running";
+overlayDnd.onUp({ pointerId: 66, clientX: 300, clientY: 130 });
+assert.equal(commitCalls.length, commitCountBefore);
+assert.equal(overlayElementCount(), 0);
+editorStub.state.phase = "editing";
+
+// ===== T-EP-20（EP-AC-06）：reduced-motion 立即路径 =====
+// D-02 参数核对：拿起 150ms、收回 180ms。
+assert.equal(LIFT_MS, 150);
+assert.equal(SETTLE_MS, 180);
+// reduce：拿起立即到位（无插值中间态、无动画 rAF 调度）；删除后 0ms 收回立即清除。
+const reduceDnd = new dndModule.DndController(editorStub, {
+  toolbox,
+  env: {
+    window: makeStubWindow(),
+    document: stubDocument,
+    requestAnimationFrame: overlayRequestAnimationFrame,
+    cancelAnimationFrame: overlayCancelAnimationFrame,
+    matchMedia: () => ({ matches: true }),
+  },
+});
+reduceDnd.startToolboxDrag("motion.move", { pointerId: 67, clientX: 20, clientY: 20 }, toolboxSource, grabCenter);
+assert.equal(reduceDnd.session.overlayPhase, "following");
+assert.equal(overlayRaf.pending.size, 0);
+assert.equal(overlayElementCount(), 1);
+reduceDnd.teardown("cancelled");
+assert.equal(overlayElementCount(), 0);
+
+reduceDnd.startBlockDrag(richMoveId, { pointerId: 68, clientX: 200, clientY: 120 });
+reduceDnd.onMove({ pointerId: 68, ...toolboxPoint });
+const deleteCountMid = deletedBlocks.length;
+reduceDnd.onUp({ pointerId: 68, ...toolboxPoint });
+assert.equal(deletedBlocks.length, deleteCountMid + 1);
+assert.equal(overlayElementCount(), 0);
+
+// 拿起动画从缩略图连续放大，放大过程中抓取点仍在指针下。
+const realNow = Date.now;
+let animationTime = 0;
+const advanceLift = (time) => {
+  animationTime = time;
+  const [handle, callback] = overlayRaf.pending.entries().next().value;
+  overlayRaf.pending.delete(handle);
+  callback();
+};
+Date.now = () => animationTime;
+try {
+  const moveGrab = { ...grabCenter, startWidth: 78, startHeight: 28 };
+  overlayDnd.startToolboxDrag("motion.move", { pointerId: 69, clientX: 20, clientY: 20 }, toolboxSource, moveGrab);
+  assert.equal(overlayDnd.session.overlayPhase, "lifting");
+  const { w: targetWidth } = overlayDnd.session.targetSize;
+  advanceLift(LIFT_MS / 2);
+  const currentWidth = parseFloat(stubBody.firstChild.style.width);
+  assert.ok(currentWidth > moveGrab.startWidth && currentWidth < targetWidth);
+  assert.ok(stubBody.firstChild.style.transform.startsWith(`translate(${20 - currentWidth / 2}px,`));
+  advanceLift(LIFT_MS);
+  assert.equal(overlayDnd.session.overlayPhase, "following");
+  assert.equal(parseFloat(stubBody.firstChild.style.width), targetWidth);
+} finally {
+  Date.now = realNow;
+  overlayDnd.teardown("cancelled");
+}
+assert.equal(overlayElementCount(), 0);
+
+// ===== T-EP-20：序列化守卫补强（新增会话字段不入程序序列化，spec 9.2 第 1 条） =====
+overlayDnd.startToolboxDrag("motion.move", { pointerId: 70, clientX: 20, clientY: 20 }, toolboxSource, grabCenter);
+const sessionSerialized = JSON.stringify(editorStub.state.root);
+assert.equal(sessionSerialized.includes("grabRatio"), false);
+assert.equal(sessionSerialized.includes("overlayPhase"), false);
+assert.equal(sessionSerialized.includes("startSize"), false);
+assert.equal(sessionSerialized.includes("targetSize"), false);
+overlayDnd.teardown("cancelled");
+assert.equal(overlayElementCount(), 0);
+
+// ===== T-EP-20：调度合并断言（连续 move 下画布重绘 ≤ 每帧一次，T-EP-10 行为固化） =====
+dnd.startBlockDrag(richMoveId, { pointerId: 71, clientX: 200, clientY: 120 });
+dnd.onMove({ pointerId: 71, clientX: 300, clientY: 130 });
+dnd.onMove({ pointerId: 71, clientX: 310, clientY: 140 });
+dnd.onMove({ pointerId: 71, clientX: 320, clientY: 150 });
+assert.equal(rafPending.size, 1);
+dnd.teardown("cancelled");
+assert.equal(rafPending.size, 0);
 
 console.log("JS-EDITOR-CHECK PASSED");

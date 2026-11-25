@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 OBSERVATION_SIGNALS = ("confused_counts", "distinguished_counts")
 HELP_LEVELS = {
+    "conversation": 0,
     "ask_question": 0,
     "stop_guidance": 0,
     "hint": 1,
@@ -22,6 +23,8 @@ HELP_LEVELS = {
 
 _BLOCK_EXPLANATIONS = {
     "control.repeat": "重复积木会把里面的动作再做几轮。放在它外面的动作只按外面的顺序执行。",
+    "control.if": "「如果」会比较海龟已经走过的步数。条件成立时，就执行里面的动作。",
+    "control.else": "把「否则」接在「如果」下面。条件不成立时，就执行「否则」里的动作。",
     "motion.move": "「向前走」让海龟朝当前方向走一步。",
     "motion.turn": "转弯积木改变海龟面向的方向。接下来的前进会朝新的方向走。",
     "event.start": "点击运行后，海龟会从开始积木接着往下做。",
@@ -33,6 +36,8 @@ _BLOCK_EXPLANATIONS = {
 _BLOCK_NAMES = {
     "event.start": r"当开始|开始积木",
     "control.repeat": r"重复|循环",
+    "control.if": r"如果积木|「如果」",
+    "control.else": r"否则积木|「否则」",
     "motion.move": r"向前走|前进积木",
     "motion.turn": r"转个弯|转弯积木",
     "look.say": r"说句话|说话积木",
@@ -40,6 +45,39 @@ _BLOCK_NAMES = {
     "value.number": r"数字积木|数值积木",
     "value.calc": r"运算积木|计算积木",
 }
+_SOCIAL_REPLIES = (
+    (r"(?:(?:ai\s*)?小老师|老师)?[，, ]*(?:你好(?:呀|啊|哦)?|您好|哈[喽啰]|嗨|嘿|早上好|晚上好|"
+     r"hi(?: there)?|hello|hey|good morning|good evening)(?:[，, ]*(?:老师|小老师))?", "你好呀！"),
+    (r"(?:好[的呀]?[，, ]*)?(?:谢谢(?:你|老师|小老师)?|多谢|thanks(?: a lot)?|thank you)",
+     "不客气，很高兴能帮上忙。"),
+    (r"再见(?:啦|了)?|拜拜|bye|goodbye|下次见", "再见，下次聊！"),
+    (r"对不起|抱歉|不好意思|sorry", "没关系。"),
+    (r"你(?:是谁|叫什么(?:名字)?|能帮我什么)|who are you", "我是 AI 小老师，可以陪你聊聊，也能一起看积木。"),
+    (r"你好吗|你怎么样|how are you(?: doing)?", "我在呢。你今天怎么样？"),
+    (r"(?:我)?(?:能|可以)问(?:你)?(?:一下|个问题)(?:吗)?", "当然，直接问就好。"),
+    (r"我(?:懂了|明白了|知道了|会了)(?:[，, ]*(?:谢谢(?:你|老师|小老师)?|多谢))?", "好呀！"),
+    (r"(?:我)?(?:今天)?(?:有点|有些|好|很|太)?(?:累了?|难过|紧张|烦|不开心)(?:了|呀|啊)?",
+     "听起来今天有点不容易。可以先歇一会儿，我在这儿。"),
+    (r"(?:我)?(?:今天)?(?:很|好|真|挺|特别)?(?:开心|高兴|兴奋)(?:了|呀|啊|呢)?", "听你这么说，我也替你高兴。"),
+)
+_LESSON_WORDS = re.compile(
+    r"积木|重复次数|循环|(?:向前|前进)|步数|几步|转弯|转个弯|海龟|正方形|"
+    r"运行|程序|编程|预测|回放|画布|这题|题目|任务|卡住|没反应|没成功|做不出来|"
+    r"给.{0,3}提示|怎么算|(?:哪|哪个|什么)数字|再举个例子"
+)
+_LESSON_FOLLOWUP = re.compile(
+    r"^(?:这(?:里|块|个|样)|那个|它|现在|我(?:改|换|试)|帮我(?:看|改|试)|"
+    r"说的是|我(?:指|说)的是|(?:前|后)面那个|(?:第[一二]|前|后)一个|"
+    r"为什么|怎么|还是(?:没懂|不行|不对)|还(?:不行|不对)|改好了|可以了吗|换个说法|直接讲)"
+)
+_LESSON_ENTRY = re.compile(
+    r"(?:我(?:该|应该)?[ ]*)?(?:从(?:哪一步|哪里|哪儿)开始|怎么(?:开始|做)|下一步(?:怎么做|做什么))[。！!？?]?"
+)
+_STEP_RESULT_QUESTION = re.compile(
+    r"(?:怎么看|怎么知道|怎么判断|怎么确认|从哪(?:里|儿)?看|哪里看|是不是|是否|有没有)"
+    r".{0,18}(?:走(?:了|过)?\s*(?:\d+|[零一二两三四五六七八九十百千]+|几|多少)\s*步|(?:实际|累计|总)?步数)"
+    r"|走(?:了|过)?\s*(?:\d+|[零一二两三四五六七八九十百千]+)\s*步(?:了)?[吗么]"
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +90,33 @@ class Reply:
 
 def _ask(message: str) -> Reply:
     return Reply(message, "ask_question", awaiting=True)
+
+
+def social_reply(message: str) -> Reply | None:
+    text = message.strip().rstrip("。！!？?，,~～.").strip().casefold()
+    if re.fullmatch(r"(?:我(?:想|要|先)?|让我)(?:自己)?(?:先)?试(?:试|一下|一试)?[吧啦呀]*", text):
+        return Reply("好，你先试试。需要时我就在这里。", "stop_guidance")
+    for pattern, answer in _SOCIAL_REPLIES:
+        if re.fullmatch(pattern, text):
+            return Reply(answer, "conversation")
+    return None
+
+
+def is_lesson_turn(message: str, context: dict) -> bool:
+    if (_LESSON_WORDS.search(message) or _STEP_RESULT_QUESTION.search(message)
+            or _LESSON_ENTRY.fullmatch(message) or observation_signal(message)):
+        return True
+    previous = context["history"][-1] if context["history"] else {}
+    if _LESSON_FOLLOWUP.search(message) and (
+        context["selected_kind"] or context["run_id"]
+        or previous.get("action") not in (None, "conversation", "stop_guidance")
+    ):
+        return True
+    question = context["reply_to"] or previous
+    return bool(
+        question.get("awaitingAnswer") and question.get("action") != "conversation"
+        and re.fullmatch(r"(?:是的?|不是|对|不对|前者|后者|[0-9一二两三四五六七八九十]+(?:次|步)?)[。！!？?]?", message)
+    )
 
 
 def observation_signal(message: str) -> str | None:
@@ -99,12 +164,31 @@ def _count_reply(which: str, facts: dict) -> Reply:
     return Reply(text, "explain")
 
 
-def local_reply(message: str, context: dict) -> Reply:
-    if not message:
-        return _ask("我们可以聊当前的积木。你想一起看看哪一步？")
-    if re.search(r"(我想|让我|我要|我先|我)[自己先]*试(试|一下|一试)?[吧啦。！]*$", message):
-        return Reply("好，你先试试。需要时我就在这里。", "stop_guidance")
+def _step_result_reply(facts: dict) -> Reply:
+    actual = facts.get("actualSteps")
+    target = facts.get("targetSteps")
+    if type(actual) is not int:
+        return Reply("这版积木运行完后，看右侧舞台下方的「累计走了 … 步」。那里会显示海龟实际走了几步。", "explain")
 
+    message = f"看右侧舞台下方的「累计走了 {actual} 步」，这就是这次实际走过的步数。"
+    if type(target) is int:
+        if actual == target:
+            message += "这个数字正好和目标步数一样。"
+        else:
+            difference = target - actual
+            comparison = f"还差 {difference} 步" if difference > 0 else f"多走了 {-difference} 步"
+            message += f"这题的目标是 {target} 步，这次{comparison}。"
+    return Reply(message, "explain")
+
+
+def local_reply(message: str, context: dict) -> Reply:
+    reply = _teaching_reply(message, context)
+    parts = re.split(r"[，,。！!]", message, maxsplit=1)
+    opening = social_reply(parts[0]) if len(parts) == 2 and parts[1].strip() else None
+    return replace(reply, message=opening.message + reply.message) if opening and opening.action == "conversation" else reply
+
+
+def _teaching_reply(message: str, context: dict) -> Reply:
     history = context["history"]
     previous = context["reply_to"] or (history[-1] if history else {})
     facts = context["facts"]
@@ -133,6 +217,8 @@ def local_reply(message: str, context: dict) -> Reply:
             )
         return Reply("前进次数数的是执行了几回前进积木。总步数数的是这些前进一共走了多远。", "explain")
 
+    if _STEP_RESULT_QUESTION.search(message):
+        return _step_result_reply(facts)
     if signal == "confused_counts":
         if "show_execution" in controls:
             return Reply("我们回放看看。注意每一次前进开始和结束时，海龟在什么位置。",
@@ -158,6 +244,8 @@ def local_reply(message: str, context: dict) -> Reply:
 
     if re.search(r"这题.{0,6}(做什么|目标|要求)|(?:任务|目标|题目).{0,4}(是什么|做什么|要求)", message):
         return Reply(context["objective"], "explain")
+    if _LESSON_ENTRY.fullmatch(message):
+        return _contextual_hint(context, prior_question)
     if re.search(r"什么|干嘛|作用|怎么|如何|用法|解释", message):
         named = [kind for kind, names in _BLOCK_NAMES.items() if re.search(names, message)]
         if len(named) == 1:

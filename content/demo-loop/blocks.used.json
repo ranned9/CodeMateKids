@@ -3,11 +3,9 @@
   "kinds": [
     "event.start",
     "control.repeat",
+    "control.if",
+    "control.else",
     "motion.move",
-    "motion.turn",
-    "look.say",
-    "text.print",
-    "value.number",
-    "value.calc"
+    "motion.turn"
   ]
 }

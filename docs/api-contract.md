@@ -164,3 +164,42 @@
 - 带档案的课堂 JSON 请求使用 `X-CMK-Student-Id`，SSE URL 使用 `studentId`。工作台为临时练习生成标签页标识。旧请求可以省略此标识。学生档案和观察使用 `CMK_LEARNING_DB_PATH`，默认 `data/learning.sqlite3`。返回 `memorySaved=false` 表示本轮课堂可以继续，学习观察暂不可保存。
 
 [首版开发和验收文档](CodeMateKids_AI老师对话与学习记忆开发文档.md)
+
+## 11. AI 老师语音对话（0.8.0，可选能力）
+
+语音能力依赖 4 个 `CMK_SIS_*` 环境变量，未配置时两接口一律返回 503，启动检查 `tutorSpeechEnabled` 为 `false`。 [运行说明](run.md)
+
+### 11.1 `GET /api/v1/startup/check`（扩展）
+
+响应新增可选布尔 `tutorSpeechEnabled`（缺省 `false`），取值 `tutorChatEnabled and SIS 可用性`。既有字段语义与缓存行为不变。
+
+### 11.2 `POST /api/v1/speech/recognize`
+
+| 项 | 值 |
+| --- | --- |
+| 请求头 | `Content-Type: application/json`；`X-CMK-Student-Id` 可选（缺省临时会话） |
+| 请求体 | `{ "audioBase64": string }`；整体请求体 ≤512 KiB（解析前拒绝） |
+| 成功 | `{ "ok": true, "data": { "text": string } }`，`Cache-Control: no-store` |
+| 停用 | 503 `SPEECH_UNAVAILABLE`「语音小助手还没准备好，可以先打字提问。」 |
+| 超限 | 413 `SPEECH_PAYLOAD_TOO_LARGE` |
+| 无效音频 | 422 `SPEECH_AUDIO_INVALID`（空串、非法 Base64、解码为空） |
+| 上游失败 | 503 `SPEECH_UNAVAILABLE`「没听清这一句，可以再说一次或打字。」；零自动重试 |
+
+转写文字由学生确认后经既有 `POST /tutor/chat` 发送，本接口不建立轮次、不持久化。
+
+### 11.3 `POST /api/v1/speech/synthesize`
+
+| 项 | 值 |
+| --- | --- |
+| 请求体 | `{ "turnId": string, "scope": { "courseId", "contentVersion", "taskId", "workspaceId" } }` |
+| 成功（音频） | 200 `audio/mpeg` + `Cache-Control: no-store`，body 为 MP3 字节 |
+| 成功（超长） | 200 `application/json`，`{ "ok": true, "data": { "playable": false, "reasonCode": "SPEECH_TEXT_TOO_LONG" } }`（回复文本 >500 字符；前端按 Content-Type 区分双形态） |
+| 轮次未找到 | 404 `RUN_NOT_FOUND`（复用既有码；不存在、过期与跨学生同一口径，无细节泄露） |
+| scope 缺项 | 422 `PROGRAM_SCHEMA_INVALID`；版本不符 409 `COURSE_VERSION_UNSUPPORTED` |
+| 停用/上游失败 | 503 `SPEECH_UNAVAILABLE` |
+
+播报一次播放一次合成，重播复用前端已取得的音频，零新请求。音频只存在于响应中，服务端不落盘。
+
+### 11.4 错误码与日志
+
+错误码表新增语音命名空间 3 键：`SPEECH_UNAVAILABLE`(503)、`SPEECH_PAYLOAD_TOO_LARGE`(413)、`SPEECH_AUDIO_INVALID`(422)；既有 32 键零变更，语音码不出现在课程/运行/作品/编辑器/模型配置/对话分支。日志白名单新增 `cloudTraceId`（16+1）；语音事件 `speech_recognize`/`speech_synthesize` 只记录耗时、类别与云端追踪 ID，不记录音频、转写原文、回复原文、turnId 与 AK/SK。

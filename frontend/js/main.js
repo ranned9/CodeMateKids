@@ -19,6 +19,7 @@ import { renderResult, updateObjectView } from "./views/result.js";
 import { bindModelConfig } from "./views/modelConfig.js";
 import { bindStudents } from "./views/students.js";
 import { showSummary } from "./views/summary.js";
+import { createTaskReader } from "./views/taskReader.js";
 import { renderToolbox } from "./views/toolbox.js";
 import { createTutor } from "./views/tutor.js";
 import { createTutorChat } from "./views/tutorChat.js";
@@ -44,6 +45,7 @@ let editor = null;
 let history = null;
 let runner = null;
 let tutor = null;
+let taskReader = null;
 let projects = null;
 let predictions = null;
 let toastTimer = null;
@@ -132,6 +134,9 @@ function collectDom() {
     "tutor-chat-input",
     "tutor-chat-selection",
     "tutor-chat-send",
+    "tutor-speech-button",
+    "tutor-voice-button",
+    "tutor-speech-note",
     "tutor-legacy",
     "tutor-message",
     "tutor-detail",
@@ -288,9 +293,8 @@ function renderAll(reason = "all") {
   if (!state.course) {
     return;
   }
-  renderCourse(dom["course-content"], state, {
-    onSelectTask: (taskId) => switchTask(taskId),
-  });
+  taskReader?.updateContext();
+  renderCourse(dom["course-content"], state, { taskReader });
   renderCoursePanels(
     {
       taskList: dom["task-list-panel"],
@@ -315,7 +319,7 @@ function renderAll(reason = "all") {
 
 function renderEditorToolbox() {
   renderToolbox(dom["toolbox-list"], state, {
-    onDragStart: (kind, event, source) => editor?.dnd.startToolboxDrag(kind, event, source),
+    onDragStart: (kind, event, source, grabInfo) => editor?.dnd.startToolboxDrag(kind, event, source, grabInfo),
     onAdd: (kind) => editor?.insertFromToolbox(kind),
     onBlockedClick: (definition) => toast(definition.blockedHint || "这个积木暂时不能运行。"),
   });
@@ -656,6 +660,7 @@ async function boot() {
     const startup = await API.startup();
     state.startup = startup;
     state.mode = startup.tutorMode;
+    taskReader = createTaskReader({ state, onStart: () => tutor?.interruptSpeech?.() });
 
     runner = createRunner({
       elements: {
@@ -693,8 +698,13 @@ async function boot() {
         input: dom["tutor-chat-input"],
         selection: dom["tutor-chat-selection"],
         submit: dom["tutor-chat-send"],
+        speechButton: dom["tutor-speech-button"],
+        voiceButton: dom["tutor-voice-button"],
+        speechNote: dom["tutor-speech-note"],
       },
       state, editor, onLocate: returnToWorkspace, onReplayFrame: showReplayFrame,
+      speechEnabled: startup.tutorSpeechEnabled === true,
+      onSpeechStart: () => taskReader.stop(),
     }) : createTutor({
       elements: {
         message: dom["tutor-message"],

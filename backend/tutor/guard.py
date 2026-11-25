@@ -14,6 +14,16 @@ PERSONAL_SOLICIT_TOKENS = ("密码", "住址", "电话", "联系方式", "学校
 FULL_SOLUTION_TOKENS = ("for ", "range(", "stage.", "print(", "=")
 
 
+def child_text_issue(value: Any, max_chars: int = MAX_MESSAGE_CHARS) -> str | None:
+    if not isinstance(value, str) or len(value) > max_chars or not child_message_is_safe(value):
+        return "unsafe_reference"
+    if is_diagnostic_text(value):
+        return "diagnostic_claim"
+    if any(token in value for token in PERSONAL_SOLICIT_TOKENS):
+        return "personal_info_request"
+    return None
+
+
 def validate_response(
     response: dict[str, Any],
     allow_full_solution: bool = False,
@@ -25,7 +35,8 @@ def validate_response(
     for key in ("action", "message", "nextStep", "uncertainty", "answerLevel", "mode"):
         if key not in response:
             return False, f"missing:{key}"
-    if response.get("action") not in TUTOR_ACTIONS:
+    action = response.get("action")
+    if action not in TUTOR_ACTIONS:
         return False, "action_out_of_enum"
     message = response.get("message")
     if not isinstance(message, str) or not message.strip():
@@ -44,12 +55,9 @@ def validate_response(
 
     for field in ("message", "nextStep", "uncertainty"):
         value = response[field]
-        if not isinstance(value, str) or len(value) > MAX_MESSAGE_CHARS or not child_message_is_safe(value):
-            return False, "unsafe_reference"
-        if is_diagnostic_text(value):
-            return False, "diagnostic_claim"
-        if any(token in value for token in PERSONAL_SOLICIT_TOKENS):
-            return False, "personal_info_request"
+        issue = child_text_issue(value)
+        if issue:
+            return False, issue
         if not allow_full_solution and any(token in value for token in FULL_SOLUTION_TOKENS):
             return False, "full_solution_too_early"
     if answer_level >= 3 and not (allow_full_solution or enhanced_local or decision):

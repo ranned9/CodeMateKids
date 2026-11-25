@@ -72,6 +72,157 @@ def _progress(client, app, student):
     return response.json()["data"]["observations"]
 
 
+def test_step_result_question_uses_stage_facts_even_when_model_reply_is_invalid(client, app):
+    contexts = []
+
+    def upstream(request, *_):
+        context = json.loads(request["messages"][1]["content"])
+        if context.get("connectionTest"):
+            data = {"status": "ok"}
+        else:
+            contexts.append(context)
+            data = {"message": "这次海龟走了九步。"}
+        return json.dumps({"choices": [{"message": {"content": json.dumps(data)}, "finish_reason": "stop"}]}).encode()
+
+    _enable_web_model(client, app, upstream)
+    student = _student(client, app, "安安")
+    scope = _scope(client, "main", "step-reading")
+    snapshot = _program("main", 3, 1)
+    question = "怎么看这是不是走4步"
+    before = _chat(client, app, scope, snapshot, "before", question, student=student)
+    assert before["action"] == "explain" and before["fallbackReason"] == "invalid_response"
+    assert "舞台下方" in before["message"] and "累计走了 … 步" in before["message"]
+    assert "actualSteps" not in contexts[-1]["facts"]
+
+    _run(client, app, student, scope, snapshot, "three-steps", 4)
+    reply = _chat(client, app, scope, snapshot, "after", question, student=student, run="three-steps")
+    assert reply["action"] == "explain" and reply["fallbackReason"] == "invalid_response"
+    assert "累计走了 3 步" in reply["message"]
+    assert "目标是 4 步" in reply["message"] and "还差 1 步" in reply["message"]
+    assert "actualSteps" in contexts[-1]["facts"]
+
+    edited = _program("main", 4, 1)
+    stale = _chat(client, app, scope, edited, "edited", "怎么知道有没有走四步？",
+                  student=student, run="three-steps")
+    assert "累计走了 … 步" in stale["message"]
+    assert "actualSteps" not in contexts[-1]["facts"]
+
+
+def test_greeting_and_feelings_do_not_trigger_block_diagnosis(client, app):
+    student = _student(client, app, "安安")
+    scope = _scope(client, "main", "social-turn")
+    invalid = _program("main", 0, 1)
+    for index, (message, expected) in enumerate((
+        ("Hello。", "你好呀！"),
+        ("谢谢你！", "不客气"),
+        ("我今天很累", "歇一会儿"),
+    )):
+        reply = _chat(client, app, scope, invalid, f"social-{index}", message, student=student, selected="repeat")
+        assert reply["action"] == "conversation" and expected in reply["message"]
+        assert reply["hintId"] is None and reply["controls"] == [] and "edit" not in reply
+    assert _progress(client, app, student) == []
+
+    lesson = _chat(client, app, scope, invalid, "mixed", "你好，重复积木是什么意思？", student=student)
+    assert lesson["action"] == "explain"
+    assert lesson["message"].startswith("你好呀！")
+    assert "里面的动作" in lesson["message"]
+    starter = _chat(client, app, scope, invalid, "getting-started", "我应该从哪里开始？", student=student)
+    assert starter["action"] == "hint" and "累计走" in starter["message"]
+
+
+def test_web_model_uses_the_same_context_for_small_talk_and_unclear_questions(client, app):
+    contexts = []
+
+    def upstream(request, *_):
+        context = json.loads(request["messages"][1]["content"])
+        if context.get("connectionTest"):
+            message = '{"status":"ok"}'
+        else:
+            assert "response_format" not in request
+            contexts.append(context)
+            message = {
+                "Hello。": "你好呀！",
+                "我最喜欢蓝色。你呢？": "我也喜欢晴天那样的蓝色。",
+                "那刚才那个呢？": '看舞台下方，海龟一共走了 3 步。\n@课堂 {"action":"explain"}',
+            }[context["message"]]
+        return json.dumps({"choices": [{"message": {"content": message}, "finish_reason": "stop"}]}).encode()
+
+    student = _student(client, app, "宁宁")
+    scope = _scope(client, "main", "social-model")
+    snapshot = _program("main", 3, 1)
+    practice = _scope(client, "main", "earlier-practice")
+    _chat(client, app, practice, snapshot, "counting", "我把每一步都算成一次移动。", student=student)
+    _run(client, app, student, scope, snapshot, "three", 4)
+    _enable_web_model(client, app, upstream)
+    greeting = _chat(client, app, scope, snapshot, "hello", "Hello。", student=student)
+    assert greeting["message"] == "你好呀！"
+    assert greeting["mode"] == "model"
+    reply = _chat(client, app, scope, snapshot, "small-talk", "我最喜欢蓝色。你呢？", student=student, selected="repeat")
+    assert reply["mode"] == "model" and reply["action"] == "conversation"
+    assert reply["hintId"] is None
+    assert contexts[-1]["history"][0]["learner"] == "Hello。"
+    assert contexts[-1]["selectedBlockKind"] == "control.repeat"
+    assert contexts[-1]["teachingApproach"] == "check_counts"
+    continued = _chat(client, app, scope, snapshot, "continued", "那刚才那个呢？", student=student, run="three")
+    assert continued["mode"] == "model" and continued["action"] == "explain"
+    assert continued["message"] == "看舞台下方，海龟一共走了 3 步。"
+    assert contexts[-1]["facts"]["actualSteps"] == "一共走了 3 步"
+    assert [turn["learner"] for turn in contexts[-1]["history"]] == ["Hello。", "我最喜欢蓝色。你呢？"]
+
+
+def test_invalid_optional_actions_keep_the_model_answer_without_controls(client, app):
+    answers = {
+        "这样呢？": '{"message":"这里可以先看循环里的动作。"}',
+        "帮我看看": '可以先看看「重复几次」积木。\n@课堂 {"action":"edit_block","targetRef":"repeat"}',
+        "能回放吗？": '你可以先运行这版积木。\n@课堂 {"action":"show_execution","targetRef":"verifiedReplay"}',
+        "黄色那块呢？": '黄色的积木控制重复。\n@课堂 {未完成',
+    }
+
+    def upstream(request, *_):
+        context = json.loads(request["messages"][1]["content"])
+        answer = '{"status":"ok"}' if context.get("connectionTest") else answers[context["message"]]
+        return json.dumps({"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}).encode()
+
+    _enable_web_model(client, app, upstream)
+    scope = _scope(client, "main", "optional-controls")
+    snapshot = _program("main", 3, 1)
+    for index, message in enumerate(answers):
+        reply = _chat(client, app, scope, snapshot, f"optional-{index}", message, selected="repeat")
+        assert reply["mode"] == "model" and reply["fallbackReason"] is None
+        assert reply["controls"] == [] and "edit" not in reply
+        assert "@课堂" not in reply["message"]
+
+
+def test_gentle_return_to_task_only_once_per_stretch(client, app):
+    states = []
+
+    def upstream(request, *_):
+        context = json.loads(request["messages"][1]["content"])
+        if context.get("connectionTest"):
+            answer = '{"status":"ok"}'
+        elif context["message"] == "我们接着看积木吧":
+            answer = '好，先看看哪块积木里面放了前进。\n@课堂 {"action":"hint"}'
+        else:
+            states.append(context["offTopic"])
+            answer = '听起来挺有意思。\n@课堂 {"returnToTask":true}'
+        return json.dumps({"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}).encode()
+
+    _enable_web_model(client, app, upstream)
+    scope = _scope(client, "main", "off-topic")
+    snapshot = _program("main", 3, 1)
+    invitation = "想接着试试刚才那道题吗？"
+    for index in range(10):
+        reply = _chat(client, app, scope, snapshot, f"casual-{index}", "我们聊聊恐龙吧")
+        assert (invitation in reply["message"]) == (index == 2)
+    assert states[0] == {"turns": 0, "invited": False}
+    assert states[-1]["invited"] is True
+
+    resumed = _chat(client, app, scope, snapshot, "resumed", "我们接着看积木吧")
+    assert resumed["action"] == "hint"
+    _chat(client, app, scope, snapshot, "casual-again", "我还喜欢猫")
+    assert states[-1] == {"turns": 0, "invited": False}
+
+
 def test_chat_before_run_clarifies_and_continues_after_edit(client, app):
     scope = _scope(client, "main", "ws-local")
     before = _program("main", 3, 2, outside=True)
@@ -156,6 +307,8 @@ def test_model_receives_sanitized_history_across_program_versions(client, app):
                 "action": "explain", "targetRef": "selectedBlock", "awaitingAnswer": True,
                 "factIdsUsed": ["repeatTimes"], "observation": None,
             }
+            if context["message"] == "这样呢？":
+                data = {"message": "刚才我们在看循环里的动作。现在{{repeatTimes}}，这版还没运行。"}
         return json.dumps({"choices": [{"message": {"content": json.dumps(data)}, "finish_reason": "stop"}]}).encode()
 
     _enable_web_model(client, app, upstream)
@@ -166,10 +319,13 @@ def test_model_receives_sanitized_history_across_program_versions(client, app):
     assert reply["mode"] == "model"
     assert reply["awaitingAnswer"] is True
     assert reply["controls"] == []
-    assert _chat(client, app, scope, after, "b", "这样呢？")["mode"] == "model"
+    continued = _chat(client, app, scope, after, "b", "这样呢？", reply_to="a")
+    assert continued["mode"] == "model"
+    assert "积木设为重复 2 次" in continued["message"] and "这版还没运行" in continued["message"]
     assert contexts[-1]["history"][0]["sameProgram"] is False
     assert contexts[-1]["hasCurrentRun"] is False
     assert contexts[-1]["history"][0]["learner"] == "这里是什么意思"
+    assert contexts[-1]["history"][0]["repliedTo"] is True
     private = _chat(client, app, scope, after, "c", "我叫小朋友")
     assert private["mode"] == "mock"
     school = _chat(client, app, scope, after, "d", "我在示例小学上学")
@@ -185,7 +341,7 @@ def test_chat_fallback_answers_the_question_when_model_repeats_or_fails(client, 
         if context.get("connectionTest"):
             data = {"status": "ok"}
         elif context["message"] == "这题要做什么？":
-            data = {"message": "缺少动作字段"}
+            data = {"message": ""}
         else:
             data = {
                 "message": repeated_question, "action": "ask_question", "targetRef": None,
@@ -196,7 +352,7 @@ def test_chat_fallback_answers_the_question_when_model_repeats_or_fails(client, 
     _enable_web_model(client, app, upstream)
     scope = _scope(client, "main", "ws-fallback")
     snapshot = _program("main", 2, 1)
-    first = _chat(client, app, scope, snapshot, "first", "我能问一下吗？")
+    first = _chat(client, app, scope, snapshot, "first", "我该从哪块积木开始？")
     assert first["mode"] == "model" and first["message"] == repeated_question
 
     second = _chat(client, app, scope, snapshot, "second", "转个弯怎么用？", reply_to="first")

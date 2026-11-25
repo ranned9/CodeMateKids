@@ -64,16 +64,25 @@ class _Emitter:
 
         if kind == "event.start":
             self.emit_line(f"{pad}pass", block_id)
-        elif kind == "control.repeat":
-            times = int(number_input_value(inputs["times"]))
-            self._repeat_seq += 1
-            safe_name = f"_repeat_{self._repeat_seq}"
-            self.emit_line(f"{pad}for {safe_name} in range({times}):", block_id)
-            body = node.get("body") or []
-            if body:
-                for child in body:
-                    self.emit_chain(child, indent + 1)
+        elif kind in ("control.repeat", "control.if", "control.else"):
+            if kind == "control.repeat":
+                times = int(number_input_value(inputs["times"]))
+                self._repeat_seq += 1
+                self.emit_line(f"{pad}for _repeat_{self._repeat_seq} in range({times}):", block_id)
+            elif kind == "control.if":
+                operator = inputs["operator"]
+                if operator not in (">=", "==", "<"):
+                    raise CompilationError("这个比较方式还不能用", block_id)
+                threshold = int(number_input_value(inputs["threshold"]))
+                self.emit_line(f"{pad}if stage.steps {operator} {threshold}:", block_id)
             else:
+                self.emit_line(f"{pad}else:", None)
+                # else 的头部不是可跟踪的 Python 指令，使用 pass 作为单步入口。
+                start_line = self.emit_line(f"{pad}    pass", block_id)
+            body = node.get("body") or []
+            for child in body:
+                self.emit_chain(child, indent + 1)
+            if not body and kind != "control.else":
                 self.emit_line(f"{pad}    pass", block_id)
         elif kind == "motion.move":
             self.emit_line(f"{pad}stage.move({move_step_count(node)})", block_id)

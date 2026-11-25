@@ -71,3 +71,47 @@ def test_run_writes_audit_record(client, settings) -> None:
     records = tail_logs(settings, 5)
     assert any(item.get("event") == "startup_check" for item in records)
     assert all(set(item) <= set(ALLOWED_FIELDS) for item in records)
+
+def test_speech_events_only_log_whitelisted_fields(settings, log_dir) -> None:
+    payload = write_log(
+        settings,
+        {
+            "event": "speech_recognize",
+            "requestId": "speech-abc",
+            "durationMs": 120,
+            "category": "ok",
+            "cloudTraceId": "cloud-trace-1",
+            "audioBase64": "UklGRg==",
+            "transcript": "孩子说的原话",
+            "turnId": "turn-1",
+            "projectId": "proj-123",
+        },
+    )
+    assert "audioBase64" not in payload
+    assert "transcript" not in payload
+    assert "turnId" not in payload
+    assert "projectId" not in payload
+    assert payload["cloudTraceId"] == "cloud-trace-1"
+
+
+def test_speech_events_never_log_credentials(settings, log_dir) -> None:
+    payload = write_log(settings, {"event": "speech_synthesize", "cmk_sis_ak": "ak-x", "cmk_sis_sk": "sk-x"})
+    assert "ak-x" not in str(payload)
+    assert "sk-x" not in str(payload)
+    line = (Path(log_dir) / "run.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    assert "ak-x" not in line and "sk-x" not in line
+
+
+def test_cloud_trace_id_requires_whitelist_registration() -> None:
+    assert "cloudTraceId" in ALLOWED_FIELDS
+    assert write_log(
+        load_settings_for_log(), {"event": "speech_recognize", "cloudTraceId": "t-1"}
+    )["cloudTraceId"] == "t-1"
+
+
+def load_settings_for_log():
+    from backend.infra.config import load_settings
+
+    import tempfile
+
+    return load_settings({"CMK_LOG_DIR": tempfile.mkdtemp()})

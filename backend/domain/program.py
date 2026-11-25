@@ -159,6 +159,9 @@ def validate_program(
         raise ProgramError("PROGRAM_TOO_LARGE", "积木太多啦，请先删掉一些。")
     if max_depth["value"] > MAX_DEPTH:
         raise ProgramError("PROGRAM_TOO_LARGE", "积木嵌套太深啦，简化一下再试。")
+    if enforce_runnable:
+        for root in program_roots(program, runnable_only=True):
+            _validate_branch_order([root])
 
     try:
         size_bytes = len(json.dumps(program, ensure_ascii=False).encode("utf-8"))
@@ -281,6 +284,20 @@ def _validate_node(
         if not isinstance(next_node, dict):
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "积木连接结构不对。", block_id)
         _validate_node(next_node, registry, depth + 1, counter, seen_ids, max_depth, enforce_runnable)
+
+
+def _validate_branch_order(heads: list[dict[str, Any]]) -> None:
+    previous_kind = None
+    for head in heads:
+        node = head
+        while node is not None:
+            kind = node["kind"]
+            if kind == "control.else" and previous_kind != "control.if":
+                raise ProgramError("PROGRAM_SCHEMA_INVALID", "把「否则」紧接在同一层的「如果」后面。", node["blockId"])
+            if node.get("body"):
+                _validate_branch_order(node["body"])
+            previous_kind = kind
+            node = node.get("next")
 
 
 def number_input_value(value: Any) -> Any:

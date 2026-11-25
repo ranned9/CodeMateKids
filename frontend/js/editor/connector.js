@@ -30,6 +30,12 @@ export function canConnect(schema, definition, targetPortType) {
 }
 
 export function canConnectToTarget(schema, definition, target, numberValue) {
+  if (target.previousKind === "control.if" && target.nextKind === "control.else") {
+    return { ok: false, reason: "NOT_ALLOWED_HERE", message: "「如果」和「否则」要接在一起。" };
+  }
+  if (definition?.kind === "control.else" && target.previousKind !== "control.if") {
+    return { ok: false, reason: "NOT_ALLOWED_HERE", message: "把「否则」紧接在同一层的「如果」后面。" };
+  }
   if (target.numberField) {
     if (definition?.kind !== "value.number") {
       return { ok: false, reason: "NEEDS_VALUE", message: "这个位置只接收数字积木。" };

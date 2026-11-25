@@ -504,3 +504,96 @@ ED-AC-01～ED-AC-20 的真实浏览器操作尚未执行，状态统一为“未
 | 已配置的模型 | 用合成问题验证积木解释和澄清两类模型回复。也观察到个别结构不合格的模型回复，接口按预期返回本地教学回复。 |
 
 课堂回归使用模拟模型传输和实际 Runner。浏览器手工验收使用本地教学回复，模型连通性用独立的合成请求验证。 [课堂测试](../tests/test_classroom_chat.py) · [前端教学检查](../tests/js_ai_teaching_check.mjs)
+
+## 24. AI 老师语音对话（0.8.0）验收
+
+本轮按语音对话开发文档执行：SIS 语音识别与语音合成、按住说话录音、转写确认与回复播报。[语音对话开发文档](CodeMateKids_AI老师语音对话开发文档.md)
+
+### 24.1 P0 配置与开关（代码已交付、能力未验收）
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| 全量回归 | 381 项 Python 测试通过（含 0.8.0 红线基线 32 键码表、16 字段日志白名单）；`js_static_check.mjs` 通过 | `tests/` |
+| 红线零变更 | 运行器、`run_protocol.v1.json`、`tutor_protocol.v1.json`、程序模型 `git diff` 为空 | 执行记录 |
+| 依赖增量 | 仅 `huaweicloudsdksis==3.1.223`（D-01 放行），两份 requirements 同步 | `requirements*.txt` |
+| 配置矩阵 | 全缺/部分凭证/坏区域/齐备/构造失败五组合启动正常，`tutorSpeechEnabled` 投影正确，`disabled_reason` 不含凭证值 | `tests/test_speech_config.py` |
+| 真实 SIS | 未验证（需使用者提供 AK/SK 并配置 4 个环境变量） | — |
+
+### 24.2 P1 语音接口（代码已交付、真实 SIS 未验收）
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| 全量回归 | 418 项 Python 测试通过；码表 32+3、白名单 16+1 基线断言通过 | `tests/test_redline_baseline_0_8_0.py` |
+| `/tutor/chat` 零改动 | `git diff -- backend/api/routers/tutor.py` 为空 | 执行记录 |
+| 语音接口 | 识别校验链（停用 503→413→422）、合成 peek 归属与双形态响应、no-store 均有替身断言；`peek` 只读性四断言通过 | `tests/test_speech_recognize.py` `tests/test_speech_synthesize.py` `tests/test_speech_peek.py` |
+| 真实 SIS | 未验证（需 AK/SK 环境变量与 P4 联调） | — |
+
+### 24.3 P2 录音与转写确认（代码已交付、浏览器行为待人工验收）
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| Node 断言 | 新增 `js_speech_check.mjs` 13 项断言全绿（状态机矩阵、15 秒定时、授权时序、取消矩阵、迟到丢弃、草稿四分支、能力检测、出口唯一） | `tests/js_speech_check.mjs` |
+| 全部检查脚本 | 12 个既有脚本 + 新增脚本逐个执行全绿（SV-RG-08：语音停用状态下 AI 教学检查无退化） | 执行记录 |
+| composer 红线 | `maxlength=300` 与既有 5 个 composer 元素零改动（仅追加 note/按钮两行）；`send()` 提交出口唯一（requestSubmit 仅既有 1 处） | `git diff` |
+| 浏览器行为 | C 类待执行（权限弹窗、真实录音、切换清理、aria 播报） | — |
+
+### 24.4 P3 回复播报（代码已交付、浏览器行为待人工验收）
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| 播报断言 | `js_speech_check.mjs` 扩展 6 项全绿（状态矩阵、重播零新请求、单路互斥、切换清理三动作、文字先行、双形态分流） | `tests/js_speech_check.mjs` |
+| 后端零改动 | P3 阶段 `git diff -- backend/` 无新增（全部 diff 均为 P0/P1 计划内增量） | 执行记录 |
+| 全量回归 | 418 项 pytest + 13 个 mjs 全绿 | 执行记录 |
+| 浏览器行为 | C 类待执行（真实 Audio 播放、自动播放拦截兜底 R-05、切换清理） | — |
+
+### 24.5 P4 端到端与发布核对（部分验证）
+
+| 类别 | 项 | 结论 | 证据 |
+| --- | --- | --- | --- |
+| B 类（真实后端，无凭证） | 启动检查投影 `tutorSpeechEnabled=false`、`tutorChatEnabled=true` | 通过 | uvicorn 127.0.0.1:8011 实测 |
+| B 类（真实后端，无凭证） | 识别/合成接口停用语义 503 + 儿童文案「还没准备好，可以先打字提问」 | 通过 | curl 实测 |
+| B 类（真实后端，无凭证） | 打字链路 200（ok=true/action=hint/mode=mock）、静态资源与 `speechRecorder.js` 200 | 通过 | curl 实测 |
+| B 类（真实后端，有凭证） | `tutorSpeechEnabled=true`、语音全链路 | 未验证（需使用者配置 AK/SK） | — |
+| C 类 | Chrome/Edge 浏览器人工验收（S1～S14） | 未验证（需人工执行 [manual-checklist](manual-checklist.md)） | — |
+| D 类 | 真实 SIS 联调与 WebM/Opus 格式实测（开-2）、性能指标 | 未验证（需已开通 SIS 的凭证） | — |
+
+**D 类联调步骤（使用者执行）**：①SIS 控制台确认已开通一句话识别与语音合成；②在线体验页先用成人录音与短句分别验证识别、合成（凭证有效性前置确认）；③设置 4 个 `CMK_SIS_*` 环境变量重启；④按住说话 → 转写 → 修改 → 发送 → 回复 → 播报全链路；⑤记录 15 秒录音 Base64 体积样本（若逼近 512 KiB 先调录音码率）；⑥若 SIS 拒绝 WebM/Opus → 按降级路径处理并在此登记；⑦回填本表与 `known_limitations.md`。
+
+### 24.6 不可宣称（0.8.0 强制口径）
+
+1. 真实 SIS 的识别/合成质量、时延与格式兼容（开-2）：**未验证**。
+2. 性能指标（识别 ≤10 秒、录音启动 ≤1 秒、合成 ≤8 秒、512 KiB 体积余量）：**未实测**，不计入通过。
+3. 浏览器人工验收（录音权限、自动播放拦截、切换清理、aria 播报）：**未验证**，需按 `manual-checklist.md` S1～S14 执行。
+4. 儿童录音的合规性：系统内已交付首次告知与不留存；家长同意流程**不在本期**，不宣称合规完备。
+## 25. 积木拿起与收回体验（0.9.0）验收
+
+本轮按 [block-drag-pickup-and-removal](block-drag-pickup-and-removal.md) 需求来源与规格 `spec-editor-pickup-0.9.0.md`、设计 `design-editor-pickup-0.9.0.md`、任务 `tasks-editor-pickup-0.9.0.md` 执行：视口拖动浮层（拿起 150ms 放大 / 收回 180ms 缩小淡出）、统一抓取偏移公式（D-04 替代固定 90/20 与 `{16,16}` 的对外行为）、画布绘制收敛（D-03 画布来源拖动统一隐藏原位层、删除积木幽灵）、移除预览与删除前快照、`pointerup` 提交前显式复核（D-07 双防线）、rAF 合并重绘（D-06）。改动面：新增 `frontend/js/editor/drag-overlay.js`，扩展 `model.js`/`render.js`/`dnd.js`/`toolbox.js`/`app.css` 与 `tests/js_editor_check.mjs`。
+
+### 25.1 自动化结论（T-EP-21）
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| 语法检查 | `node --check` 逐文件通过（`model.js`/`render.js`/`dnd.js`/`drag-overlay.js`/`toolbox.js`/`js_editor_check.mjs`） | 执行记录 |
+| Node 断言 | `node tests/js_editor_check.mjs` 全绿；既有回归（序列化契约、事务、会话生命周期、phase 门禁、移除命中、单次提交、取消清理、快速松手、多指针忽略、teardown 幂等）零回归 | `tests/js_editor_check.mjs` |
+| EP-AC-02 | 浮层生命周期：创建后在 body、提交替换后移除、取消清理后移除、重复 `destroy()` 幂等、任一路径后 `document.body` 零残留 | `tests/js_editor_check.mjs` |
+| EP-AC-03 | 抓取公式：缩略图中心（ratio 0.5）与边缘（ratio 1）两方向自由落点均按 `point − ratio × 画面布局尺寸` 换算；`{16,16}` 兜底仅保留为异常路径断言（stub 未提供 grabInfo）并单独标注；源码无 `PREVIEW_OFFSET` 残留 | `tests/js_editor_check.mjs` |
+| EP-AC-04 | 移除范围：`removalScopeIds()` 输出与 `detachBlock()` 实删语义对照一致（链中块 `{repeat, move}` 不含后续 `print`、多层嵌套容器全后代、不存在 id 返回空集合）；画布来源拖容器进入移除区时 `removalScope` 一致、离开恢复整组、边界往返一致 | `tests/js_editor_check.mjs` |
+| EP-AC-05 | `pointerup` 复核：会话进行中变只读/运行态后松手——不提交、零事务、无动画、浮层清除（双防线之二） | `tests/js_editor_check.mjs` |
+| EP-AC-06 | reduce 立即路径：拿起 0ms 立即到位（无插值中间态、无动画 rAF 调度）、删除后 0ms 收回立即清除；`LIFT_MS=150`/`SETTLE_MS=180` 参数核对通过；非 reduce 时动画 rAF 确认被调度 | `tests/js_editor_check.mjs` |
+| 守卫补强 | 新增会话字段（`grabRatio`/`overlayPhase`/`startSize`/`targetSize`）不入程序序列化（spec 9.2 第 1 条）；连续 move 下画布重绘调度 ≤ 每帧一次且 teardown 取消挂起帧（T-EP-10 行为固化） | `tests/js_editor_check.mjs` |
+| rAF 适配 | `lastResult` 更新移入帧回调后，测试 stub 改为「记录挂起 + flushFrames() 手动驱动」；既有断言语义不变，仅适配执行时机 | `tests/js_editor_check.mjs` |
+| 红线 | 本轮改动面仅限上列 7 个文件；工作区中 `backend/**`、`schemas/**`、`content/**` 的未提交 diff 均为 0.7.0/0.8.0 遗留，本轮零接触；连接语义（`resolveDropTarget()`/`canConnectToTarget()`）、删除范围（`detachBlock()`）、事务路径（`commitDrop()`/`deleteBlock()`/`history.record()`）零改动 | 执行记录 |
+
+### 25.2 手工验收（EP-AC-07～18）
+
+| 用例 | 结论 |
+| --- | --- |
+| EP-AC-07～EP-AC-18（12 条浏览器用例：缩略图抓取、跨区域可见、四场景放置、容器删除收回、移除预览往返、快速松手、取消路径、无效位置、连续拖放、点击/键盘添加、reduce、双浏览器双分辨率） | 未执行（本轮无浏览器环境；需按 `spec-editor-pickup-0.9.0.md` 第 10.2 节手工验收表执行并回填） |
+
+### 25.3 不可宣称（0.9.0 强制口径）
+
+1. 动画手感（150/180ms 观感）：**未验证**。
+2. 真机触屏/触笔、高 DPI 清晰度、Firefox/Safari：**未验证**。
+3. rAF 合并后的帧率数值结论：**未实测**，不计入通过。
+4. 整组浮层超视口可用性（D-05 推荐值「溢出不缩放」）：**未验证**；不可接受时按回退口径压缩呈现（仅改 `drag-overlay.js` 呈现策略，范围计算不动）。
+5. 工具箱来源目标连接模式下仅靠插入线/目标框提示落点的可读性（T-EP-09 视觉回退点）：**未验证**；不可接受时按回退口径增强提示视觉权重（不恢复画布幽灵）。

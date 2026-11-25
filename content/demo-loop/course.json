@@ -36,10 +36,8 @@
         "control.repeat",
         "motion.move",
         "motion.turn",
-        "look.say",
-        "text.print",
-        "value.number",
-        "value.calc"
+        "control.if",
+        "control.else"
       ],
       "successCriteria": [
         {
@@ -94,7 +92,7 @@
       "type": "variant",
       "title": "小海龟走六步",
       "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "knowledgePointIds": ["kp.loop"]},
-      "objective": "让小海龟累计走 6 步。加练时，可以让它走完后说一句话。",
+      "objective": "让小海龟累计走 6 步。加练时，可以用分支让它走到指定步数后转弯。",
       "predictionQuestion": "搭好积木后，先猜一猜小海龟会前进几次。",
       "durationHint": "大约 4 分钟",
       "initialProgram": {
@@ -105,16 +103,14 @@
         "root": null,
         "metadata": {"createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z"}
       },
-      "expectedBehavior": "小海龟累计走 6 步。结束时说一句话是可选的加练。",
+      "expectedBehavior": "舞台显示小海龟累计走了 6 步。",
       "allowedBlockKinds": [
         "event.start",
         "control.repeat",
         "motion.move",
         "motion.turn",
-        "look.say",
-        "text.print",
-        "value.number",
-        "value.calc"
+        "control.if",
+        "control.else"
       ],
       "successCriteria": [
         {
@@ -182,7 +178,7 @@
         "metadata": {"createdAt": "2026-11-20T00:00:00Z", "updatedAt": "2026-11-20T00:00:00Z"}
       },
       "expectedBehavior": "舞台上出现四条一样长的边。海龟回到起点，朝向和开始时一样。",
-      "allowedBlockKinds": ["event.start", "control.repeat", "motion.move", "motion.turn", "value.number"],
+      "allowedBlockKinds": ["event.start", "control.repeat", "motion.move", "motion.turn", "control.if", "control.else"],
       "successCriteria": [
         {"code": "square_origin_x", "description": "海龟左右回到起点", "check": {"object": "stage", "field": "x", "op": "eq", "value": 0}},
         {"code": "square_origin_y", "description": "海龟上下回到起点", "check": {"object": "stage", "field": "y", "op": "eq", "value": 0}},
@@ -205,7 +201,6 @@
     }
   ],
   "otherThemes": [
-    {"themeId": "condition", "title": "条件判断", "status": "coming_soon"},
     {"themeId": "variable", "title": "变量", "status": "coming_soon"}
   ],
   "reviewStatus": "reviewed",

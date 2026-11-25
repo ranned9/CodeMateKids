@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import time
+from dataclasses import replace
 
 from fastapi import APIRouter, Request
 
@@ -155,22 +156,47 @@ def create_chat(body: TutorChatRequest, request: Request) -> dict:
         points = task.get("teaching", {}).get("knowledgePointIds", [])
         context["memory"] = classroom.teaching_approach(store.learning_observations(bundle.course["courseId"], points))
         message = _classroom_answer(body.message, limit=300)
-        edit_reply, edit = small_edits.plan_small_edit(message, context, learning.program, body.selectedBlockId, bundle.registry)
-        reply = edit_reply or classroom.local_reply(message, context)
+        social = classroom.social_reply(message)
+        edit_reply, edit = (None, None) if social else small_edits.plan_small_edit(
+            message, context, learning.program, body.selectedBlockId, bundle.registry,
+        )
+        reply = edit_reply or (social if social and social.action == "stop_guidance" else None)
         active = request.app.state.model_config.active()
         origin = "mock"
-        fallback = "unconfigured" if active.adapter != ADAPTER_CHAT else None
+        fallback = None
         signal = classroom.observation_signal(message)
+        invite_back = False
         started = time.monotonic()
-        if active.adapter == ADAPTER_CHAT and message and edit_reply is None and reply.action != "stop_guidance":
+        if active.adapter == ADAPTER_CHAT and message and reply is None:
             try:
-                candidate, observation = _ask_classroom_model(request, active, context, message, reply)
+                candidate, observation, invite = _ask_classroom_model(request, active, context, message)
                 if request.app.state.model_config.current_revision() != active.revision:
                     fallback = "configuration_changed"
                 else:
                     reply, signal, origin = candidate, observation or signal, "model"
+                    invite_back = invite
             except Exception as exc:  # The local reply remains usable if the model fails.
                 fallback = chat_adapter.classify_error(exc)
+        if reply is None:
+            if not message:
+                reply = classroom.Reply("我们可以聊聊你正在做的事。", "conversation")
+            elif social:
+                reply = social
+            elif classroom.is_lesson_turn(message, context):
+                reply = classroom.local_reply(message, context)
+                if active.adapter != ADAPTER_CHAT:
+                    fallback = "unconfigured"
+            else:
+                reply = classroom.Reply("你可以再多说一点吗？我想确认自己理解对了。", "conversation", awaiting=True)
+
+        off_topic = context["off_topic"]
+        if reply.action != "conversation":
+            off_topic = {"turns": 0, "invited": False}
+        elif not social and origin == "model":
+            off_topic = {**off_topic, "turns": min(off_topic["turns"] + 1, 3)}
+            if invite_back and off_topic["turns"] >= 3 and not off_topic["invited"]:
+                reply = replace(reply, message=reply.message + "\n\n想接着试试刚才那道题吗？", awaiting=True)
+                off_topic["invited"] = True
 
         request_id = f"tutor-{uuid.uuid4().hex}"
         level = classroom.HELP_LEVELS[reply.action]
@@ -198,7 +224,7 @@ def create_chat(body: TutorChatRequest, request: Request) -> dict:
         if not store.memory_available:
             response["memorySaved"] = False
         conversations.finish(scope, learning.turnId, fingerprint, message, response, {
-            "programDigest": context["program_digest"], "runRequestId": context["run_id"],
+            "programDigest": context["program_digest"], "runRequestId": context["run_id"], "offTopic": off_topic,
         })
         write_log(settings, {
             "event": "tutor_chat", "requestId": request_id, "durationMs": int((time.monotonic() - started) * 1000),
@@ -241,9 +267,11 @@ def _add_chat_context(context, body, task, store, key, history):
         actions["point_to_block"] = list(context["block_targets"])
     if context["replay_available"]:
         actions["show_execution"] = ["verifiedReplay"]
+    previous = history[-1]["snapshot"] if history else {}
     context.update(
         objective=task["objective"], prediction_question=task["predictionQuestion"],
-        history=history, selected_kind=selected_kind, actions=actions, memory=None,
+        history=history, selected_kind=selected_kind, actions=actions,
+        off_topic=previous.get("offTopic", {"turns": 0, "invited": False}),
         reply_to=next((turn for turn in reversed(history) if
                        turn["turnId"] == learning.replyToTurnId and turn["awaitingAnswer"]), None),
     )
@@ -257,7 +285,7 @@ def _chat_controls(reply, context):
     return []
 
 
-def _ask_classroom_model(request, active, context, message, local):
+def _ask_classroom_model(request, active, context, message):
     budget = min(request.app.state.settings.tutor_timeout_ms / 1000.0, 8.0)
     started = time.monotonic()
 
@@ -266,8 +294,8 @@ def _ask_classroom_model(request, active, context, message, local):
         remaining = budget - (time.monotonic() - started)
         if remaining <= 0:
             raise chat_adapter.ChatAdapterError("timeout")
-        messages = chat_adapter.classroom_messages(context, message, local)
-        payload = chat_adapter.build_payload(active.model, messages, host=target.host)
+        messages = chat_adapter.classroom_messages(context, message)
+        payload = chat_adapter.build_payload(active.model, messages, host=target.host, json_response=False)
         raw = request.app.state.model_transport(payload, target, active.api_key, remaining)
         return chat_adapter.classroom_reply(chat_adapter.parse(raw), context)
 

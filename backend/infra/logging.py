@@ -28,6 +28,7 @@ ALLOWED_FIELDS: tuple[str, ...] = (
     "modelSource",
     "modelRevision",
     "modelCategory",
+    "cloudTraceId",
 )
 
 _WRITE_LOCK = threading.Lock()

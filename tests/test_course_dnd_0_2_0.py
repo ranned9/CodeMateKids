@@ -15,10 +15,8 @@ EXPECTED_KINDS = {
     "control.repeat",
     "motion.move",
     "motion.turn",
-    "look.say",
-    "text.print",
-    "value.number",
-    "value.calc",
+    "control.if",
+    "control.else",
 }
 
 
@@ -30,13 +28,9 @@ def tasks() -> list[dict]:
     return course()["tasks"]
 
 
-def test_allowed_kinds_include_expression_inputs_and_host() -> None:
+def test_toolbox_has_branches_and_omits_display_and_calculation() -> None:
     for task in tasks():
-        kinds = set(task["allowedBlockKinds"])
-        if task["taskId"] == "transfer-square":
-            assert kinds == {"event.start", "control.repeat", "motion.move", "motion.turn", "value.number"}
-        else:
-            assert kinds == EXPECTED_KINDS, task["taskId"]
+        assert set(task["allowedBlockKinds"]) == EXPECTED_KINDS, task["taskId"]
 
 
 def test_allowed_kinds_all_runnable() -> None:

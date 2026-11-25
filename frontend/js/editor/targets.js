@@ -3,6 +3,7 @@
 import { canConnectToTarget, portTypeOfTarget } from "./connector.js";
 
 export const HIT_PAD = 10;
+const STATEMENT_SNAP_PAD = 24;
 export const SNAP_X = 40;
 export const SNAP_Y_MAX = 56;
 export const INSERT_BAND_MIN = 20;
@@ -100,6 +101,8 @@ export function buildTargets(layout, { exprSlotsEnabled = false } = {}) {
       id: targetIdOf(owner, `after:${node.blockId}`),
       containerRef: owner,
       anchorRef: `after:${node.blockId}`,
+      previousKind: node.kind,
+      nextKind: node.nextKind,
       rect: bandRect(node, afterY, node.rect.w),
       visual: lineVisual(node.rect.x + 8, afterY + 4, node.rect.w - 16),
       portType: "statement-next",
@@ -140,7 +143,12 @@ export function buildTargets(layout, { exprSlotsEnabled = false } = {}) {
         id: `body:${node.blockId}@after:${child.blockId}`,
         containerRef: `body:${node.blockId}`,
         anchorRef: `after:${child.blockId}`,
-        rect: bandRect(child, afterY, child.rect.w),
+        previousKind: child.kind,
+        nextKind: child.nextKind,
+        rect: {
+          ...bandRect(child, afterY),
+          h: Math.min(INSERT_BAND_MIN, section.foot.y - afterY),
+        },
         visual: lineVisual(child.rect.x + 8, afterY + 4, child.rect.w - 16, node.blockId),
         portType: "statement-body",
         depth: node.depth + 1,
@@ -226,6 +234,13 @@ export function pointInRect(point, rect, pad = 0) {
   );
 }
 
+export function isWithinDropRange(point, target) {
+  if (target.portType === "expression") {
+    return pointInRect(point, target.rect, target.numberField ? 0 : HIT_PAD);
+  }
+  return pointInRect(point, target.rect, STATEMENT_SNAP_PAD);
+}
+
 function gapOf(point, rect) {
   const dx = point.x < rect.x ? rect.x - point.x : point.x > rect.x + rect.w ? point.x - rect.x - rect.w : 0;
   const dy = point.y < rect.y ? rect.y - point.y : point.y > rect.y + rect.h ? point.y - rect.y - rect.h : 0;
@@ -253,7 +268,7 @@ export function resolveDropTarget(layout, point, ctx = {}) {
   const targets = (layout.targets || []).filter((target) => target.visible && (!ctx.allowTarget || ctx.allowTarget(target)));
 
   let candidates = targets
-    .filter((target) => pointInRect(point, target.rect, target.numberField ? 0 : HIT_PAD))
+    .filter((target) => isWithinDropRange(point, target))
     .map((target) => ({ target, ...gapOf(point, target.rect) }));
 
   if (candidates.length === 0 && !layout.nodes?.length && targets[0]?.id === "root@start") {
@@ -282,11 +297,12 @@ export function resolveDropTarget(layout, point, ctx = {}) {
     if (aFits !== bFits) {
       return bFits ? 1 : -1;
     }
-    if (b.target.depth !== a.target.depth) {
-      return b.target.depth - a.target.depth;
-    }
+    // 先选离指针最近的连接位。命中同一位置时再取更深的容器。
     if (a.distance !== b.distance) {
       return a.distance - b.distance;
+    }
+    if (b.target.depth !== a.target.depth) {
+      return b.target.depth - a.target.depth;
     }
     return a.target.priority - b.target.priority;
   });

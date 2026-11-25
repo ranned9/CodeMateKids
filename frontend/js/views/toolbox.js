@@ -1,15 +1,14 @@
 /** 工具箱：积木分类与添加。 */
 import { drawToolboxBlock } from "../editor/render.js";
 
-const CATEGORY_ORDER = ["开始", "动作", "循环", "显示", "运算", "其他"];
+const CATEGORY_ORDER = ["开始", "动作", "循环", "分支", "其他"];
 let activeCategory = "全部";
 
 function categoryOf(kind) {
   if (kind.startsWith("event.")) return "开始";
   if (kind.startsWith("motion.")) return "动作";
+  if (kind === "control.if" || kind === "control.else") return "分支";
   if (kind.startsWith("control.")) return "循环";
-  if (kind.startsWith("look.") || kind.startsWith("text.")) return "显示";
-  if (kind.startsWith("value.")) return "运算";
   return "其他";
 }
 
@@ -103,6 +102,45 @@ export function renderToolbox(container, state, callbacks) {
   }
 }
 
+function clampRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return 0.5;
+  }
+  return Math.max(0, Math.min(1, number));
+}
+
+/**
+ * 0.9.0：在 pointerdown 事件处理内同步读取缩略图实际绘制边界（CSS 像素）与按下相对位置，
+ * 作为拿起动画起点尺寸与抓取公式的输入。读取失败时以按钮边界兜底，仍不可得返回 null。
+ */
+function buildGrabInfo(event, button, artwork, inset) {
+  try {
+    for (const element of [artwork, button]) {
+      if (!element?.getBoundingClientRect) {
+        continue;
+      }
+      const rect = element.getBoundingClientRect();
+      if (!rect || !(rect.width > 0) || !(rect.height > 0)) {
+        continue;
+      }
+      const insetX = element === artwork ? rect.width * inset.insetX : 0;
+      const insetY = element === artwork ? rect.height * inset.insetY : 0;
+      const width = rect.width - 2 * insetX;
+      const height = rect.height - 2 * insetY;
+      return {
+        ratioX: clampRatio((event.clientX - rect.left - insetX) / width),
+        ratioY: clampRatio((event.clientY - rect.top - insetY) / height),
+        startWidth: width,
+        startHeight: height,
+      };
+    }
+  } catch (error) {
+    // 边界读取失败时返回 null，由 dnd.js 异常路径兜底。
+  }
+  return null;
+}
+
 function buildItem(definition, callbacks, blocked = false) {
   const button = document.createElement("button");
   button.type = "button";
@@ -113,11 +151,14 @@ function buildItem(definition, callbacks, blocked = false) {
     : `${definition.displayName}，可拖动，点击或按 Enter 添加。`;
   button.setAttribute("aria-label", label);
   button.title = definition.blockedHint || definition.displayName;
-  const artwork = document.createElement("canvas");
-  if (!blocked && drawToolboxBlock(artwork, definition)) {
-    artwork.className = "toolbox-block-art";
-    artwork.setAttribute("aria-hidden", "true");
-    button.appendChild(artwork);
+  let artwork = null;
+  const canvas = document.createElement("canvas");
+  const inset = !blocked && drawToolboxBlock(canvas, definition);
+  if (inset) {
+    canvas.className = "toolbox-block-art";
+    canvas.setAttribute("aria-hidden", "true");
+    button.appendChild(canvas);
+    artwork = canvas;
   } else {
     const name = document.createElement("strong");
     name.textContent = definition.displayName;
@@ -134,7 +175,8 @@ function buildItem(definition, callbacks, blocked = false) {
         return;
       }
       event.preventDefault();
-      callbacks.onDragStart(definition.kind, event, button);
+      // 读取在事件处理内同步完成，规避工具箱类别切换重渲染导致的边界失真。
+      callbacks.onDragStart(definition.kind, event, button, buildGrabInfo(event, button, artwork, inset));
     });
     button.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {

@@ -74,7 +74,12 @@ globalThis.document = {
   body: new ElementStub(),
   addEventListener: noOp,
 };
-globalThis.window = { setTimeout: noOp, clearTimeout: noOp, addEventListener: noOp };
+globalThis.window = {
+  setTimeout: noOp,
+  clearTimeout: noOp,
+  addEventListener: noOp,
+  removeEventListener: noOp,
+};
 
 const schema = JSON.parse(readFileSync(new URL("../schemas/blocks.v1.json", import.meta.url), "utf8"));
 const fixture = JSON.parse(readFileSync(new URL("../content/demo-loop/course.json", import.meta.url), "utf8"));
@@ -108,6 +113,21 @@ const { __cmkState: state, __cmkEditor: editor } = window;
 assert.equal(state.contentVersion, initialVersion);
 assert.equal(state.root, null);
 assert.equal(element("canvas-empty").hidden, false);
+const toolbox = element("toolbox-list");
+const categories = toolbox.children.find((item) => item.className === "toolbox-categories");
+assert.deepEqual(categories.children.map((item) => item.dataset.category), ["全部", "开始", "动作", "循环", "分支"]);
+const toolboxItems = toolbox.children.find((item) => item.className === "toolbox-items");
+assert.deepEqual(toolboxItems.children.map((item) => item.dataset.kind).sort(),
+  ["event.start", "control.repeat", "control.if", "control.else", "motion.move", "motion.turn"].sort());
+const startItem = toolboxItems.children.find((item) => item.dataset.kind === "event.start");
+startItem.listeners.get("pointerdown")({
+  button: 0, pointerId: 1, clientX: 360, clientY: 230, preventDefault: noOp,
+});
+assert.deepEqual(editor.dnd.session.grabRatio, { x: 0.5, y: 0.5 });
+assert.equal(editor.dnd.session.offset.x, editor.dnd.session.overlayLogical.w / 2);
+editor.dnd.onCancel({ pointerId: 1 });
+assert.equal(state.root, null);
+
 assert.equal(editor.insertFromToolbox("event.start"), true);
 assert.equal(editor.insertFromToolbox("control.repeat"), true);
 assert.equal(editor.insertFromToolbox("motion.move"), true);
@@ -255,15 +275,21 @@ assert.equal(state.root.next.next.blockId, printId);
 assert.equal(editor.history.undo(), true);
 assert.equal(JSON.stringify(state.root), beforeDelete);
 
-const repeatControl = editor.numberControls.controls.get(loopId);
+const setControl = (control, value) => {
+  control.input.value = String(value);
+  control.input.listeners.get("change")();
+};
+const stepControl = (control, key) => control.input.listeners.get("keydown")({ key, preventDefault: noOp });
+const repeatControl = editor.fieldControls.get(loopId, "times");
 const beforeIncrement = state.root.next.inputs.times;
-repeatControl.increase.click();
+assert.equal(repeatControl.element.children.length, 1);
+stepControl(repeatControl, "ArrowUp");
 assert.equal(state.root.next.inputs.times, beforeIncrement + 1);
-repeatControl.decrease.click();
+stepControl(repeatControl, "ArrowDown");
 assert.equal(state.root.next.inputs.times, beforeIncrement);
 
 const timesTarget = editor.layout.targets.find((target) => target.id === `expr:${loopId}.times`);
-const targetPoint = { x: timesTarget.rect.x + 55, y: timesTarget.rect.y + timesTarget.rect.h / 2 };
+const targetPoint = { x: timesTarget.rect.x + timesTarget.rect.w / 2, y: timesTarget.rect.y + timesTarget.rect.h / 2 };
 const numberPreview = editor.dnd.buildPreview(targetPoint, {
   kind: "value.number",
   definition: state.blocksByKind.get("value.number"),
@@ -278,18 +304,14 @@ assert.equal(editor.commitDrop(null, "value.number", numberPreview), true);
 const countId = state.selectedBlockId;
 assert.equal(state.root.next.inputs.times.blockId, countId);
 assert.equal(editor.layout.nodes.find((node) => node.blockId === countId).parentBlockId, loopId);
-const countControl = editor.numberControls.controls.get(countId);
-assert.equal(editor.numberControls.controls.has(loopId), false);
+const countControl = editor.fieldControls.get(countId, "value");
+assert.equal(editor.fieldControls.get(loopId, "times"), undefined);
 assert.equal(countControl.input.step, "1");
-countControl.increase.click();
+stepControl(countControl, "ArrowUp");
 assert.equal(state.root.next.inputs.times.inputs.value, 2);
-const typeCount = (value) => {
-  countControl.input.value = value;
-  countControl.input.listeners.get("change")();
-};
-typeCount("3");
-typeCount("3.5");
-typeCount("101");
+setControl(countControl, 3);
+setControl(countControl, 3.5);
+setControl(countControl, 101);
 assert.equal(countControl.input.value, "3");
 assert.equal(state.root.next.inputs.times.inputs.value, 3);
 assert.match(element("code-preview-text").textContent, /range\(3\)/);
@@ -302,7 +324,7 @@ assert.equal(editor.deleteBlock(countId), true);
 assert.equal(state.root.next.inputs.times, 4);
 
 const moveId = state.root.next.body[0].blockId;
-assert.equal(editor.numberControls.controls.has(moveId), false);
+assert.equal(editor.fieldControls.get(moveId, "steps"), undefined);
 assert.equal(editor.layout.targets.some((target) => target.id === `expr:${moveId}.steps`), false);
 assert.deepEqual(state.root.next.body[0].inputs, {});
 assert.match(element("code-preview-text").textContent, /stage\.move\(1\)/);
@@ -310,9 +332,11 @@ assert.match(element("code-preview-text").textContent, /stage\.move\(1\)/);
 editor.selectBlock(moveId);
 assert.equal(editor.insertFromToolbox("motion.turn"), true);
 const turnId = state.selectedBlockId;
-editor.numberControls.controls.get(turnId).increase.click();
+const angleControl = editor.fieldControls.get(turnId, "degrees");
+assert.deepEqual(angleControl.input.children.map((option) => option.textContent), ["90°", "180°", "270°"]);
+setControl(angleControl, 180);
 const angleTarget = editor.layout.targets.find((target) => target.id === `expr:${turnId}.degrees`);
-const anglePoint = { x: angleTarget.rect.x + 70, y: angleTarget.rect.y + angleTarget.rect.h / 2 };
+const anglePoint = { x: angleTarget.rect.x + angleTarget.rect.w / 2, y: angleTarget.rect.y + angleTarget.rect.h / 2 };
 const anglePreview = editor.dnd.buildPreview(anglePoint, {
   kind: "value.number",
   definition: state.blocksByKind.get("value.number"),
@@ -324,10 +348,21 @@ const angleId = state.selectedBlockId;
 assert.match(element("code-preview-text").textContent, /stage\.turn\(180\)/);
 editor.commitFieldValue(angleId, "value", "91");
 assert.match(element("code-preview-text").textContent, /stage\.turn\(180\)/);
-editor.numberControls.controls.get(angleId).increase.click();
+setControl(editor.fieldControls.get(angleId, "value"), 270);
 assert.match(element("code-preview-text").textContent, /stage\.turn\(270\)/);
 assert.equal(editor.deleteBlock(angleId), true);
 assert.match(element("code-preview-text").textContent, /stage\.turn\(90\)/);
+
+editor.selectBlock(loopId);
+assert.equal(editor.insertFromToolbox("control.if"), true);
+const ifId = state.selectedBlockId;
+const operatorControl = editor.fieldControls.get(ifId, "operator");
+const thresholdControl = editor.fieldControls.get(ifId, "threshold");
+assert.deepEqual(operatorControl.input.children.map((option) => option.textContent), ["至少", "等于", "少于"]);
+assert.equal(operatorControl.caption.textContent, "≥");
+setControl(operatorControl, "<");
+setControl(thresholdControl, 4);
+assert.match(element("code-preview-text").textContent, /if stage\.steps < 4/);
 
 let acceptReset = false;
 window.confirm = () => acceptReset;
@@ -414,8 +449,28 @@ assert.equal(state.root, null);
 assert.equal(readClassroomDraft(student, state.tasks.get("variant")), null);
 assert.deepEqual(readClassroomDraft(guest, state.tasks.get("main")).root, guestMain);
 
+const writeDraft = window.localStorage.setItem;
 window.localStorage.setItem = () => { throw new Error("storage unavailable"); };
 assert.equal(currentEditor.insertFromToolbox("event.start"), true);
 assert.match(element("save-state").textContent, /自动保存失败/);
+window.localStorage.setItem = writeDraft;
+
+assert.equal(currentEditor.insertFromToolbox("control.else"), false);
+assert.equal(currentEditor.insertFromToolbox("control.if"), true);
+const conditionId = state.selectedBlockId;
+currentEditor.commitFieldValue(conditionId, "threshold", "2");
+currentEditor.commitFieldValue(conditionId, "operator", "<");
+assert.equal(currentEditor.insertFromToolbox("motion.move"), true);
+currentEditor.selectBlock(conditionId);
+assert.equal(currentEditor.insertFromToolbox("control.else"), true);
+assert.equal(currentEditor.insertFromToolbox("motion.turn"), true);
+const condition = state.root.next;
+assert.deepEqual(condition.inputs, { operator: "<", threshold: 2 });
+assert.equal(condition.body[0].kind, "motion.move");
+assert.equal(condition.next.kind, "control.else");
+assert.equal(condition.next.body[0].kind, "motion.turn");
+assert.match(element("code-preview-text").textContent, /if stage\.steps < 2:\n    stage\.move\(1\)\nelse:\n    stage\.turn\(90\)/);
+currentEditor.selectBlock(conditionId);
+assert.equal(currentEditor.insertFromToolbox("control.else"), false);
 
 console.log("JS-PROJECT-COURSE-CHECK PASSED");

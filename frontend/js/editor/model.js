@@ -217,6 +217,38 @@ export function detachBlock(root, blockId, { keepTail = false, definitions } = {
   return { root, node: expressionNode };
 }
 
+/**
+ * 计算将被移除的积木集合：被删块自身 + body 各链头子树（不含链上 next 后续）+ 字段内嵌表达式节点。
+ * 与 detachBlock()（keepTail = false）的摘除语义严格对齐，是移除预览与收回动画范围的唯一真源。
+ * 无副作用；blockId 不存在时返回空集合。
+ * @param {any} root
+ * @param {string} blockId
+ * @returns {Set<string>}
+ */
+export function removalScopeIds(root, blockId) {
+  const scope = new Set();
+  const node = findBlock(root, blockId);
+  if (!node) {
+    return scope;
+  }
+  const collect = (current) => {
+    if (!current || scope.has(current.blockId)) {
+      return;
+    }
+    scope.add(current.blockId);
+    for (const child of current.body || []) {
+      collect(child);
+    }
+    for (const value of Object.values(current.inputs || {})) {
+      if (value && typeof value === "object" && value.kind) {
+        collect(value);
+      }
+    }
+  };
+  collect(node);
+  return scope;
+}
+
 export function attachToNext(owner, node) {
   node.next = owner.next;
   owner.next = node;
@@ -630,7 +662,21 @@ export function validateTree(root, definitions) {
   if (!definitions) {
     return { ok: true, issues, invalidIds, blockedKinds };
   }
+
+  function checkBranches(heads) {
+    let previousKind = null;
+    for (const node of bodyStatements(heads)) {
+      if (node.kind === "control.else" && previousKind !== "control.if") {
+        invalidIds.add(node.blockId);
+        issues.push({ blockId: node.blockId, kind: node.kind, message: "把「否则」紧接在同一层的「如果」后面。" });
+      }
+      checkBranches(node.body);
+      previousKind = node.kind;
+    }
+  }
+
   for (const head of runnableRoots(root)) {
+    checkBranches([head]);
     walkNodes(head, (node) => {
       const definition = definitions.get(node.kind);
       if (!definition || !definition.runnable) {

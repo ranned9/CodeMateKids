@@ -38,6 +38,38 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8011
 | `CMK_MODEL_ENDPOINT`、`CMK_MODEL_KEY` | 空 | 模型连接与凭据，运行时注入环境变量 |
 | `CMK_TUTOR_AGENT_ENABLED` | 未设置 | 设为 `1` 后，网页模型可在本题内追问、定位积木或展示回放 |
 | `CMK_COURSE_DIR`、`CMK_LOG_DIR` | `content/demo-loop`、`logs` | 课程包和脱敏日志目录 |
+| `CMK_SIS_REGION` | `cn-north-4` | 华为云 SIS 区域，也支持 `cn-east-3`；其他区域视为不支持 |
+| `CMK_SIS_PROJECT_ID` | 空 | 已开通 SIS 的区域项目 ID |
+| `CMK_SIS_AK` | 空 | SIS 访问密钥 ID |
+| `CMK_SIS_SK` | 空 | SIS 访问密钥（仅保存在后端进程内存） |
+| `CMK_SIS_TTS_VOICE` | `chinese_huaxiaorui_common` | 可选。任务和老师回复使用「华小蕊」精品音色，设为 `chinese_xiaoyan_common` 可切回普通音色「小燕」 |
+
+项目 ID、AK、SK 均配置后才启用语音。区域默认为北京四。语音停用时 Demo 正常启动，学生照常打字聊天。更改配置后重启服务即可生效。AK/SK 通过后端环境变量传入。 [语音对话开发文档](CodeMateKids_AI老师语音对话开发文档.md)
+
+不想每次新开终端都重设变量时，把 4 个值写进 `logs\sis.env.local`（`logs/` 已被 Git 忽略），用一键启动。模板见 `scripts\sis.env.example`，值不要加引号或空格。
+
+```powershell
+Copy-Item scripts\sis.env.example logs\sis.env.local
+# 编辑 logs\sis.env.local 填入真值后再运行
+.\scripts\run_demo_sis.cmd
+```
+
+启动前可先自检；`--probe` 会真实合成一次并保存到 `logs\sis-probe.mp3`（会计费）。
+
+```powershell
+python scripts\check_sis.py
+python scripts\check_sis.py --probe
+```
+
+## AI 老师语音对话
+
+「AI 小老师」输入框右侧有「听写」麦克风和「语音对话」波形。点击开始录音，再点结束，也可以按住说话、松手转写。听写支持 `Alt+Shift+D`。转写结果可以先编辑再发送，使用「语音对话」发出的提问会自动尝试播报老师回复，听写和打字的回复可手动播放。 [语音对话开发文档](CodeMateKids_AI老师语音对话开发文档.md)
+
+- 使用前在启动终端配置 SIS 凭证和区域并重启。启动检查中 `tutorSpeechEnabled` 为 `true` 后，可以录音并试听回复。
+- 精品音色按每 50 字符计一次合成，普通音色按每 100 字符计一次。 [华为云合成参数与计费](https://support.huaweicloud.com/api-sis/sis_03_0111.html)
+- 开始录音时，界面会提示录音结束后发往华为云转写。每次最多录 15 秒，录音结束后释放麦克风，服务端在内存中处理音频。
+- 转写文字需学生确认后才发送，发送路径与打字完全一致。识别或播放失败时可以随时改用打字。
+- 浏览器需要支持麦克风采集（`getUserMedia`）与 WebM/Opus 录音（Chrome、Edge 当前版本）。SIS 或浏览器录音不可用时，两个语音按钮保持可见并置灰，点击可查看原因，文字聊天照常使用。
 
 ### 网页接入真实模型
 

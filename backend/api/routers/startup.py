@@ -15,8 +15,10 @@ def startup_check(request: Request, refresh: bool = False) -> dict:
 
     settings = request.app.state.settings
     report = check_startup(settings, refresh=refresh)
+    speech = getattr(request.app.state, "speech", None)
     return ok({
         **report,
         "tutorMode": request.app.state.model_config.snapshot().effectiveMode,
         "tutorChatEnabled": settings.tutor_chat_enabled,
+        "tutorSpeechEnabled": bool(settings.tutor_chat_enabled and speech and speech.available),
     })

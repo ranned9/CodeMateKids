@@ -201,8 +201,27 @@
           <form class="tutor-composer" id="tutor-chat-form">
             <label for="tutor-chat-input">你的问题</label>
             <p class="muted" id="tutor-chat-selection" hidden></p>
-            <textarea id="tutor-chat-input" rows="2" maxlength="300" placeholder="例如：这块积木是什么意思？"></textarea>
-            <button type="submit" class="primary-button" id="tutor-chat-send">发送</button>
+            <p class="muted tutor-speech-note" id="tutor-speech-note" aria-live="polite" hidden></p>
+            <div class="tutor-composer-box">
+              <textarea id="tutor-chat-input" rows="2" maxlength="300" placeholder="例如：这块积木是什么意思？"></textarea>
+              <div class="tutor-composer-actions">
+                <div class="tutor-speech-actions">
+                  <span class="speech-tool">
+                    <button type="button" class="speech-button" id="tutor-speech-button" aria-pressed="false" aria-disabled="true" aria-label="听写">
+                      <span class="speech-glyph speech-mic" aria-hidden="true"></span>
+                    </button>
+                    <span class="speech-tooltip" aria-hidden="true">听写 <kbd>Alt+Shift+D</kbd></span>
+                  </span>
+                  <span class="speech-tool">
+                    <button type="button" class="speech-button speech-button-voice" id="tutor-voice-button" aria-pressed="false" aria-disabled="true" aria-label="语音对话">
+                      <span class="speech-glyph speech-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+                    </button>
+                    <span class="speech-tooltip" aria-hidden="true">语音对话</span>
+                  </span>
+                </div>
+                <button type="submit" class="primary-button" id="tutor-chat-send">发送</button>
+              </div>
+            </div>
           </form>
         </div>
         <div class="tutor-body" id="tutor-legacy" hidden>

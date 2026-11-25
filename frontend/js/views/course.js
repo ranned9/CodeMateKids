@@ -29,6 +29,8 @@ export function renderCoursePanels(panels = {}, state, callbacks = {}) {
 export function buildCurrentTask(task, state, callbacks = {}) {
   const card = document.createElement("div");
   card.className = "task-card active";
+  const header = document.createElement("div");
+  header.className = "task-card-heading";
 
   const heading = document.createElement("h3");
   heading.textContent = task.title;
@@ -36,7 +38,14 @@ export function buildCurrentTask(task, state, callbacks = {}) {
   tag.className = "task-tag";
   tag.textContent = task.teaching?.goalKind === "square" ? "迁移挑战" : TYPE_LABEL[task.type] || "任务";
   heading.appendChild(tag);
-  card.appendChild(heading);
+  header.appendChild(heading);
+  if (callbacks.taskReader) {
+    header.appendChild(callbacks.taskReader.button);
+  }
+  card.appendChild(header);
+  if (callbacks.taskReader) {
+    card.appendChild(callbacks.taskReader.status);
+  }
 
   const objective = document.createElement("p");
   objective.textContent = task.objective;

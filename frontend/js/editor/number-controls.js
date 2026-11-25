@@ -1,12 +1,28 @@
-/** 数字积木和数值插槽共用可直接输入的控件。 */
-import { numberControlRect, pickNode } from "./layout.js";
+/** 在 Canvas 积木的参数位置叠放可编辑的原生输入控件。 */
+import { fieldControlRect, pickNode } from "./layout.js";
 
-export class NumberControls {
+const COMPARISONS = {
+  ">=": { symbol: "≥", label: "至少" },
+  "==": { symbol: "=", label: "等于" },
+  "<": { symbol: "<", label: "少于" },
+};
+
+export function fieldChoiceText(field, value) {
+  if (field.name === "operator") return COMPARISONS[value]?.symbol ?? String(value ?? "");
+  if (field.name === "degrees" && value != null) return `${value}°`;
+  return String(value ?? "");
+}
+
+function choiceOptionText(field, value) {
+  return field.name === "operator" ? COMPARISONS[value]?.label ?? String(value) : fieldChoiceText(field, value);
+}
+
+export class FieldControls {
   constructor(editor) {
     this.editor = editor;
     this.controls = new Map();
     this.layer = document.createElement("div");
-    this.layer.className = "canvas-number-layer";
+    this.layer.className = "canvas-field-layer";
     editor.stage.appendChild(this.layer);
   }
 
@@ -17,135 +33,128 @@ export class NumberControls {
     this.controls.clear();
   }
 
-  sync(editable, dragging) {
-    this.layer.hidden = dragging;
-    if (dragging) {
-      return null;
-    }
+  get(blockId, fieldName) {
+    return this.controls.get(`${blockId}.${fieldName}`);
+  }
 
+  sync(editable, hiddenBlockIds) {
     const { layout, canvas, width, height, scrollX, scrollY } = this.editor;
     const bounds = canvas.getBoundingClientRect();
     const scaleX = bounds.width / width;
     const scaleY = bounds.height / height;
-    const visible = new Set();
+    const visibleKeys = new Set();
+    const visibleFields = new Set();
 
     for (const node of layout.nodes) {
-      const field = node.visible && node.fields?.find((item) => item.inlineNumber);
-      if (!field) {
-        continue;
-      }
-      const { x, y, w, h } = numberControlRect(field.rect);
-      const hit = pickNode(layout, { x: x + w / 2, y: y + h / 2 });
-      if (hit?.blockId !== node.blockId) {
-        continue;
-      }
+      if (!node.visible || hiddenBlockIds?.has(node.blockId)) continue;
+      for (const field of node.fields || []) {
+        if (!field.inlineNumber && !(field.inHeader && field.valueType === "choice")) continue;
+        const { x, y, w, h } = fieldControlRect(field);
+        const hit = pickNode(layout, { x: x + w / 2, y: y + h / 2 });
+        if (hit?.blockId !== node.blockId) continue;
 
-      const control = this.controls.get(node.blockId) || this.create(node.blockId, field.name);
-      const { element, input, decrease, increase } = control;
-      const value = node.inputs?.[field.name];
-      const inputField = this.editor.fieldForEdit(node.blockId, field);
-      const { min, max } = inputField.range || {};
-      const choices = inputField.choices;
-      control.editable = editable;
-      control.min = min ?? choices?.[0];
-      control.max = max ?? choices?.at(-1);
-      control.choices = choices;
-      if (control.value !== value || document.activeElement !== input) {
-        input.value = String(value ?? "");
+        const key = `${node.blockId}.${field.name}`;
+        const inputField = this.editor.fieldForEdit(node.blockId, field);
+        let control = this.controls.get(key);
+        if (!control || control.choices !== inputField.choices) {
+          control?.element.remove();
+          control = this.create(node.blockId, inputField);
+          this.controls.set(key, control);
+        }
+        const { element, input, caption } = control;
+        const value = node.inputs?.[field.name];
+        if (control.value !== value || document.activeElement !== input) {
+          input.value = String(value ?? "");
+        }
+        control.value = value;
+        input.disabled = !editable;
+        if (caption) {
+          caption.textContent = fieldChoiceText(field, value);
+        } else {
+          control.min = inputField.range?.min;
+          control.max = inputField.range?.max;
+          input.min = control.min == null ? "" : String(control.min);
+          input.max = control.max == null ? "" : String(control.max);
+          input.step = inputField.valueType === "number" ? "any" : "1";
+          input.inputMode = inputField.valueType === "number" ? "decimal" : "numeric";
+        }
+        element.style.left = `${(x - scrollX) * scaleX}px`;
+        element.style.top = `${(y - scrollY) * scaleY}px`;
+        element.style.width = `${w * scaleX}px`;
+        element.style.height = `${h * scaleY}px`;
+        visibleKeys.add(key);
+        visibleFields.add(field);
       }
-      control.value = value;
-      input.disabled = !editable;
-      input.min = control.min ?? "";
-      input.max = control.max ?? "";
-      input.step = inputField.valueType === "number" ? "any" : "1";
-      input.inputMode = inputField.valueType === "number" ? "decimal" : "numeric";
-      decrease.disabled = !editable || (control.min != null && value <= control.min);
-      increase.disabled = !editable || (control.max != null && value >= control.max);
-      element.style.left = `${(x - scrollX) * scaleX}px`;
-      element.style.top = `${(y - scrollY) * scaleY}px`;
-      element.style.width = `${w * scaleX}px`;
-      element.style.height = `${h * scaleY}px`;
-      visible.add(node.blockId);
     }
-    for (const [id, control] of this.controls) {
-      if (!visible.has(id)) {
+    for (const [key, control] of this.controls) {
+      if (!visibleKeys.has(key)) {
         control.element.remove();
-        this.controls.delete(id);
+        this.controls.delete(key);
       }
     }
-    return visible;
+    return visibleFields;
   }
 
-  focus(blockId) {
-    const control = this.controls.get(blockId);
-    if (control?.editable) {
+  focus(blockId, fieldName) {
+    const control = this.get(blockId, fieldName);
+    if (control && !control.input.disabled) {
       control.input.focus();
-      control.input.select();
+      control.input.select?.();
     }
     return Boolean(control);
   }
 
-  create(blockId, fieldName) {
+  create(blockId, field) {
     const element = document.createElement("div");
-    element.className = "canvas-number-control";
-    const label = { times: "重复次数", degrees: "角度", value: "数字的数值" }[fieldName] || fieldName;
-    const input = document.createElement("input");
-    input.type = "number";
-    input.setAttribute("aria-label", label);
-    const makeButton = (sign, action) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = sign;
-      button.setAttribute("aria-label", action + label);
-      button.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.stopPropagation();
-        }
-      });
-      return button;
-    };
-    const decrease = makeButton("−", "减少");
-    const increase = makeButton("+", "增加");
-    const control = { element, input, decrease, increase };
+    element.className = "canvas-field-control";
+    const input = document.createElement(field.choices ? "select" : "input");
+    const label = { times: "重复次数", degrees: "转弯角度", threshold: "比较步数", operator: "比较方式" }[field.name];
+    input.setAttribute("aria-label", label || field.label || field.name);
+    let caption = null;
+    if (field.choices) {
+      caption = document.createElement("span");
+      caption.setAttribute("aria-hidden", "true");
+      element.appendChild(caption);
+      for (const choice of field.choices) {
+        const option = document.createElement("option");
+        option.value = String(choice);
+        option.textContent = choiceOptionText(field, choice);
+        input.appendChild(option);
+      }
+    } else {
+      input.type = "number";
+      input.addEventListener("focus", () => input.select());
+    }
+
+    const control = { element, input, caption, choices: field.choices };
     const commit = (value) => {
-      if (control.editable) {
-        this.editor.commitFieldValue(blockId, fieldName, value);
+      if (!input.disabled) {
+        this.editor.commitFieldValue(blockId, field.name, value);
       }
       input.value = String(control.value ?? "");
     };
-    const step = (delta) => {
-      if (control.choices) {
-        const next = control.choices[control.choices.indexOf(control.value) + delta];
-        if (next != null) commit(String(next));
-        return;
-      }
-      const value = Math.min(control.max ?? Infinity, Math.max(control.min ?? -Infinity, control.value + delta));
-      commit(String(value));
-    };
-    decrease.addEventListener("click", () => step(-1));
-    increase.addEventListener("click", () => step(1));
-    input.addEventListener("focus", () => input.select());
     input.addEventListener("change", () => commit(input.value));
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.key === "Enter") {
-          commit(input.value);
-        } else {
-          input.value = String(control.value ?? "");
+    if (!caption) {
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Enter") {
+            commit(input.value);
+          } else {
+            input.value = String(control.value ?? "");
+          }
+          input.blur();
+        } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const delta = event.key === "ArrowDown" ? -1 : 1;
+          const value = Math.min(control.max ?? Infinity, Math.max(control.min ?? -Infinity, control.value + delta));
+          commit(String(value));
         }
-        input.blur();
-      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        step(event.key === "ArrowDown" ? -1 : 1);
-      }
-    });
-    element.appendChild(decrease);
+      });
+    }
     element.appendChild(input);
-    element.appendChild(increase);
     this.layer.appendChild(element);
-    this.controls.set(blockId, control);
     return control;
   }
 }

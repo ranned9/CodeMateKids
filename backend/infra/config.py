@@ -12,6 +12,13 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 APP_VERSION = "0.1.0"
 EXPECTED_PYTHON = "3.12"
 
+SIS_REGION_ENDPOINTS: dict[str, str] = {
+    "cn-north-4": "sis-ext.cn-north-4.myhuaweicloud.com",
+    "cn-east-3": "sis-ext.cn-east-3.myhuaweicloud.com",
+}
+SIS_DEFAULT_REGION = "cn-north-4"
+SIS_DEFAULT_TTS_VOICE = "chinese_huaxiaorui_common"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -32,6 +39,11 @@ class Settings:
     tutor_agent_enabled: bool = False
     tutor_chat_enabled: bool = True
     learning_db_path: Path = BASE_DIR / "data" / "learning.sqlite3"
+    sis_region: str = SIS_DEFAULT_REGION
+    sis_project_id: str = ""
+    sis_ak: str = ""
+    sis_sk: str = ""
+    sis_tts_voice: str = SIS_DEFAULT_TTS_VOICE
 
 
 def _int_env(env: Mapping[str, str], name: str, default: int, minimum: int = 1) -> int:
@@ -78,6 +90,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
 
     learning_db_path = BASE_DIR / (source.get("CMK_LEARNING_DB_PATH") or "data/learning.sqlite3")
 
+    sis_region = (source.get("CMK_SIS_REGION") or SIS_DEFAULT_REGION).strip() or SIS_DEFAULT_REGION
+
     return Settings(
         host=host,
         port=port,
@@ -95,6 +109,11 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         tutor_agent_enabled=(source.get("CMK_TUTOR_AGENT_ENABLED") or "").strip() == "1",
         tutor_chat_enabled=(source.get("CMK_TUTOR_CHAT_ENABLED") or "1").strip() != "0",
         learning_db_path=learning_db_path,
+        sis_region=sis_region,
+        sis_project_id=(source.get("CMK_SIS_PROJECT_ID") or "").strip(),
+        sis_ak=(source.get("CMK_SIS_AK") or "").strip(),
+        sis_sk=(source.get("CMK_SIS_SK") or "").strip(),
+        sis_tts_voice=(source.get("CMK_SIS_TTS_VOICE") or "").strip() or SIS_DEFAULT_TTS_VOICE,
     )
 
 

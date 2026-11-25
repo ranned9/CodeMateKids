@@ -69,6 +69,7 @@ class StartupCheckResponse(ApiModel):
     schemaVersion: str
     tutorMode: Literal["mock", "model"]
     tutorChatEnabled: bool = True
+    tutorSpeechEnabled: bool = False
     elapsedMs: int
     appVersion: str
     cached: bool = False
@@ -146,6 +147,21 @@ class TutorChatRequest(ApiModel):
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
     learningContext: ChatLearningContext
     selectedBlockId: Identifier | None = None
+
+
+class SpeechRecognizeRequest(ApiModel):
+    audioBase64: str = Field(max_length=1_400_000)
+
+
+class SpeechSynthesizeRequest(ApiModel):
+    turnId: Identifier
+    scope: LearningScope
+
+
+class TaskSpeechRequest(ApiModel):
+    taskId: str = Field(min_length=1, max_length=64)
+    contentVersion: str = Field(pattern=CONTENT_VERSION_PATTERN)
+    part: int = Field(default=0, ge=0)
 
 
 class StudentCreateRequest(ApiModel):

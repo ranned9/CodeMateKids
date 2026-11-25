@@ -14,6 +14,7 @@ def build_router() -> APIRouter:
         projects,
         runs,
         session,
+        speech,
         startup,
         tutor,
     )
@@ -23,6 +24,7 @@ def build_router() -> APIRouter:
     router.include_router(course.router)
     router.include_router(runs.router)
     router.include_router(tutor.router)
+    router.include_router(speech.router)
     router.include_router(model_config.router)
     router.include_router(projects.router)
     router.include_router(session.router)

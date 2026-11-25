@@ -99,3 +99,19 @@ class ConversationStore:
             session = self._scopes.get(scope)
             if session is not None and session.pending == turn_id:
                 session.pending = None
+
+    def peek(self, scope: tuple, turn_id: str) -> dict | None:
+        """只读查询已完成轮次的完整响应副本；不存在/过期返回 None。
+
+        只读约束：不删条目、不改 touched、不触发回收、不触碰 pending。
+        """
+        with self._lock:
+            session = self._scopes.get(scope)
+            if session is None:
+                return None
+            turn = session.turns.get(turn_id)
+            if turn is None:
+                return None
+            if self._clock() - session.touched >= TTL_SECONDS:
+                return None
+            return deepcopy(turn["response"])

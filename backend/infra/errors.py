@@ -107,6 +107,9 @@ ERROR_SPECS: dict[str, ErrorSpec] = {
     "TUTOR_TURN_CONFLICT": ErrorSpec("tutor_turn_conflict", 409, "请按现在的积木重新提问。", True),
     "STUDENT_NOT_FOUND": ErrorSpec("not_found", 404, "找不到这个学生，请重新选择档案。", True),
     "LEARNING_STORE_UNAVAILABLE": ErrorSpec("storage", 503, "暂时无法保存学习进度，可以继续练习。", True),
+    "SPEECH_UNAVAILABLE": ErrorSpec("speech_unavailable", 503, "语音小助手暂时不可用，可以先打字提问。", True),
+    "SPEECH_PAYLOAD_TOO_LARGE": ErrorSpec("speech_payload", 413, "这段话太长啦，说得短一点再试。", True),
+    "SPEECH_AUDIO_INVALID": ErrorSpec("speech_audio", 422, "没有听到声音，再按住说一次吧。", True),
 }
 
 CHILD_SAFE_FORBIDDEN = (
