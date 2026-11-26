@@ -137,7 +137,7 @@ def classify(facts: Facts) -> str:
     ):
         return Pattern.PREDICTION_MISMATCH.value
 
-    if facts.routeMet:
+    if facts.routeMet and facts.structureMet is not False:
         return Pattern.GOAL_MET.value
     return Pattern.UNKNOWN.value
 

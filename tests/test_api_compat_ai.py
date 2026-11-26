@@ -40,6 +40,7 @@ def _course() -> dict:
 
 def _two_task_course() -> dict:
     course = copy.deepcopy(_course())
+    course.pop("transferTaskId", None)
     course["tasks"] = course["tasks"][:2]
     for task in course["tasks"]:
         task.pop("teaching", None)
@@ -169,6 +170,8 @@ def test_course_schema_accepts_legacy_two_task_pack() -> None:
     schema = _json("schemas/course.v1.json")
     legacy = _two_task_course()
     assert validate(legacy, schema) == []
+    validate_course(legacy)
+    legacy["tasks"][0]["nextTaskId"] = None
     validate_course(legacy)
     assert schema["properties"]["tasks"]["minItems"] == 2
 

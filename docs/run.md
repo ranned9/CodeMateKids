@@ -38,6 +38,7 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8011
 | `CMK_MODEL_ENDPOINT`、`CMK_MODEL_KEY` | 空 | 模型连接与凭据，运行时注入环境变量 |
 | `CMK_TUTOR_AGENT_ENABLED` | 未设置 | 设为 `1` 后，网页模型可在本题内追问、定位积木或展示回放 |
 | `CMK_COURSE_DIR`、`CMK_LOG_DIR` | `content/demo-loop`、`logs` | 课程包和脱敏日志目录 |
+| `CMK_LEARNING_DB_PATH` | `data/learning.sqlite3` | 本机学生档案和结构化学习观察 |
 | `CMK_SIS_REGION` | `cn-north-4` | 华为云 SIS 区域，也支持 `cn-east-3`；其他区域视为不支持 |
 | `CMK_SIS_PROJECT_ID` | 空 | 已开通 SIS 的区域项目 ID |
 | `CMK_SIS_AK` | 空 | SIS 访问密钥 ID |
@@ -77,13 +78,27 @@ python scripts\check_sis.py --probe
 
 使用 DeepSeek 官方服务时，基础地址填 `https://api.deepseek.com`，模型名可填 `deepseek-flash`。适配器为官方域名使用 `max_tokens` 并关闭思考模式。当本地 DNS 只返回代理虚拟地址时，项目通过 Cloudflare 公共 DNS 查找 IPv4 公网地址，再按原域名验证 TLS 证书。 [DeepSeek 官方接入](https://api-docs.deepseek.com/) · [DeepSeek 请求参数](https://api-docs.deepseek.com/api/create-chat-completion/)
 
-点「测试连接」，通过后点「启用模型」。连接测试只验证模型返回可解析的 JSON，课堂回复另外核对事实及教学动作。进入「小海龟走六步」，让角色实际动 2 次、走 4 步，再点轻提示。该条回复应显示「真实模型」，并引用本次运行的事实。
+点「测试连接」，通过后点「启用模型」。连接测试验证模型返回可解析的 JSON，课堂回复另外核对事实及教学动作。进入「小海龟走六步」，用重复积木让角色前进两次并运行，再点轻提示。该条回复应显示「真实模型」，并引用本次运行的事实。
 
 「测试连接」通过后，地址、模型名和密钥自动保存到 `logs/model-config.local.json`，网页提示「密钥已保存」。即使还没点「启用模型」，重启后也能直接启用。已启用的模型会在重启后继续使用，切回「使用演示回复」也会保留配置。同一 API 地址重新测试时，密钥栏可留空以复用已保存的密钥。该文件存的是明文，Git 已忽略。使用 `CMK_LOG_DIR` 时，文件位于指定目录中。
 
 要试多轮教学，在启动终端设置 `$env:CMK_TUTOR_AGENT_ENABLED = "1"` 后启动服务，再在网页启用模型。可用同一道题中的两种虚构回答检查教法变化。 [网页模型与教学 Agent 开发文档](CodeMateKids_网页模型接入与教学Agent开发文档.md)
 
-作品通过浏览器保存或打开 JSON。学习证据保存在服务进程内存中，随进程关闭清空。开发诊断见 [本机日志接口](http://127.0.0.1:8000/api/v1/diagnostics/logs?tail=20)，支持的积木见 [能力矩阵](matrix.md)。
+## 切换课包
+
+在启动终端设置 `$env:CMK_COURSE_DIR = "content/你的课包目录"`，再运行 `.\run_demo.cmd`。每个服务进程同时使用一个课包。工作台读取课包的实际 ID 和入口任务，已有作品按照自身的 `courseRef` 匹配当前课包。[课包扩展说明](architecture.md#如何扩展)
+
+## 本机数据位置
+
+| 数据 | 位置与恢复方式 |
+|---|---|
+| 导出的作品 | 浏览器下载的 JSON，可通过「打开作品」载入 |
+| 课堂草稿 | 同一浏览器和站点地址的本地存储。回到同一档案和任务时可恢复 |
+| 会话小结和当前运行 | 后端进程内存。重启后从新会话开始 |
+| 本机学生档案与学习观察 | `CMK_LEARNING_DB_PATH` 指定的 SQLite 文件。临时练习不写入学生档案 |
+| 网页模型配置 | 日志目录的 `model-config.local.json`，包括连接测试成功后保存的凭据 |
+
+要清理本机档案与网页模型配置，先退出服务，再按需备份和移除相应文件。浏览器数据可在浏览器中按站点清理。开发诊断和积木支持范围详见以下入口。[本机日志接口](http://127.0.0.1:8000/api/v1/diagnostics/logs?tail=20) · [能力矩阵](matrix.md)
 
 ## 测试与验收
 

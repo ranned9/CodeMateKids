@@ -4,7 +4,9 @@ export function syncMirror(mirrorEl, layoutNodes, state, selectBlock) {
   if (!mirrorEl) {
     return;
   }
-  const focusId = document.activeElement?.dataset?.blockId || null;
+  const focused = document.activeElement;
+  const focusId = focused?.dataset?.blockId && mirrorEl.contains(focused) ? focused.dataset.blockId : null;
+  let restoringFocus = false;
   mirrorEl.innerHTML = "";
   const list = document.createElement("div");
   list.setAttribute("role", "group");
@@ -27,16 +29,20 @@ export function syncMirror(mirrorEl, layoutNodes, state, selectBlock) {
       `第 ${index + 1} 个积木，${name}，层级 ${node.depth + 1}${statuses.length ? "，" + statuses.join("，") : ""}`,
     );
     button.textContent = `${name}${statuses.length ? "（" + statuses.join("，") + "）" : ""}`;
-    button.addEventListener("focus", () => selectBlock(node.blockId, { skipNotify: true }));
+    button.addEventListener("focus", () => {
+      if (!restoringFocus) selectBlock(node.blockId, { skipNotify: true });
+    });
     button.addEventListener("click", () => selectBlock(node.blockId));
     list.appendChild(button);
   });
 
   mirrorEl.appendChild(list);
   if (focusId) {
-    const next = mirrorEl.querySelector(`[data-block-id="${focusId}"]`);
+    const next = mirrorEl.querySelector(`[data-block-id="${state.selectedBlockId ?? focusId}"]`);
     if (next) {
+      restoringFocus = true;
       next.focus({ preventScroll: true });
+      restoringFocus = false;
     }
   }
 }

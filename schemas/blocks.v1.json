@@ -197,18 +197,18 @@
         {
           "name": "degrees",
           "label": "角度",
-          "valueType": "choice",
+          "valueType": "number",
           "acceptsNumberBlock": true,
           "required": true,
           "defaultValue": 90,
-          "choices": [90, 180, 270]
+          "suggestions": [30, 45, 60, 90, 120, 135, 150, 180, 210, 225, 240, 270, 300, 315, 330]
         }
       ],
       "scopeRule": "none",
       "targetAnchor": "python.call",
-      "blockedHint": "点「角度」或拖入数字，可选 90、180、270 度。",
+      "blockedHint": "可以直接输入转弯度数，或从下拉菜单选择常用角度。",
       "runnable": true,
-      "testCaseRefs": ["TC-TURN-01", "TC-TURN-NEG-CHOICE"]
+      "testCaseRefs": ["TC-TURN-01", "TC-TURN-NEG-NUMBER"]
     },
     {
       "kind": "look.say",

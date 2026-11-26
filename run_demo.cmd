@@ -1,5 +1,6 @@
 @echo off
 setlocal
+chcp 65001 >nul
 cd /d "%~dp0"
 
 python -c "import sys; sys.exit(0 if sys.version_info[:2]==(3, 12) else 1)" 2>nul

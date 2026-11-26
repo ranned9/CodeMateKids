@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.tutor.square import inspect
 from tests.helpers import node
 
@@ -25,6 +27,15 @@ def test_correct_loop_structure_met() -> None:
     assert report.steps_per_move == 2
     assert report.turn_degrees == 90
     assert report.outside_moves == 0
+
+
+@pytest.mark.parametrize(("degrees", "normalized", "met"), [
+    (-90, 270, True), (450, 90, True), (-450.0, 270, True), (90.5, 90.5, False), (270.5, 270.5, False),
+])
+def test_turn_structure_uses_the_same_angle_as_the_stage(degrees, normalized, met) -> None:
+    report = inspect(_square(degrees=degrees))
+    assert report.turn_degrees == normalized
+    assert report.structure_met is met
 
 
 def test_removing_turn_breaks_structure() -> None:

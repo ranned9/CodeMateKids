@@ -607,8 +607,9 @@ export class EditorView {
     return slot ? {
       ...field,
       valueType: slot.valueType,
-      range: slot.range,
+      range: slot.range ?? field.range,
       choices: slot.choices,
+      suggestions: slot.suggestions,
       acceptsNumberBlock: true,
     } : field;
   }

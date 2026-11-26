@@ -3,28 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CodeMateKids · 小小编程课堂</title>
+  <title>拾阶 · 少儿编程课堂</title>
   <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
+  <svg width="0" height="0" class="svg-defs" aria-hidden="true" focusable="false">
+    <symbol id="turtle" viewBox="0 0 64 48">
+      <ellipse cx="18" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+      <ellipse cx="42" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+      <ellipse cx="18" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+      <ellipse cx="42" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+      <path d="M6 24 L1 21 L1 27 Z" fill="#86BE79"/>
+      <circle cx="55" cy="24" r="7.5" fill="#86BE79"/>
+      <circle cx="57.5" cy="21" r="1.8" fill="#1D2B3A"/>
+      <ellipse cx="30" cy="24" rx="21" ry="16.5" fill="#4E9A5B" stroke="#2F6B3C" stroke-width="2.5"/>
+      <polygon points="30,15 38,19.5 38,28.5 30,33 22,28.5 22,19.5" fill="#6DB37A" stroke="#2F6B3C" stroke-width="1.6"/>
+      <path d="M30 15 L30 8.5 M38 19.5 L46 15 M38 28.5 L46 33 M30 33 L30 39.5 M22 28.5 L14 33 M22 19.5 L14 15" stroke="#2F6B3C" stroke-width="1.6"/>
+    </symbol>
+  </svg>
+
   <header class="app-header">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">◆</span>
-      <span class="brand-name">小小编程课堂</span>
-      <span class="brand-sub">AI 编程小老师</span>
+      <svg class="brand-mark" aria-hidden="true" focusable="false"><use href="#turtle"/></svg>
+      <span class="brand-name">拾阶</span>
+      <span class="brand-sub">一步一步学编程</span>
     </div>
+    <nav class="task-tabs" id="task-tabs" aria-label="本课任务"></nav>
     <div class="header-actions">
+      <span class="save-state" id="save-state" role="status" aria-live="polite">还没保存</span>
       <div class="student-controls" id="student-controls" hidden>
         <label for="student-select">当前学生</label>
         <select id="student-select"><option value="">临时练习</option></select>
         <button class="ghost-button" id="student-create" type="button">新建档案</button>
       </div>
-      <span class="save-state" id="save-state" role="status" aria-live="polite">还没保存</span>
-      <button type="button" class="ghost-button" id="task-list-trigger" data-panel-trigger="taskList" aria-controls="task-list-panel" aria-expanded="false">其他任务</button>
       <button type="button" class="ghost-button" id="summary-open">学习总结</button>
-      <button type="button" class="ghost-button" id="save-project">保存作品</button>
-      <button type="button" class="ghost-button" id="open-project">打开作品</button>
-      <button type="button" class="ghost-button" id="system-info-trigger" data-panel-trigger="systemInfo" aria-controls="system-info" aria-expanded="false">系统信息</button>
+      <details class="header-menu" id="project-menu">
+        <summary class="ghost-button">作品</summary>
+        <div class="header-menu-list">
+          <button type="button" class="menu-item" id="save-project">保存作品</button>
+          <button type="button" class="menu-item" id="open-project">打开作品</button>
+        </div>
+      </details>
+      <button type="button" class="ghost-button icon-button" id="system-info-trigger" data-panel-trigger="systemInfo" aria-controls="system-info" aria-expanded="false" aria-label="系统信息" title="系统信息">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
+      </button>
       <input type="file" id="project-file" accept=".json,application/json" hidden>
     </div>
   </header>
@@ -81,16 +103,8 @@
       <div id="course-content">
         <p class="muted">正在读取课程…</p>
       </div>
-      <div class="prediction-box" id="prediction-box">
-        <label for="prediction-input" id="prediction-label">先猜一猜角色会动几次？</label>
-        <div class="prediction-row">
-          <input type="number" id="prediction-input" min="0" max="1000" inputmode="numeric" value="">
-          <button type="button" class="primary-button" id="prediction-submit">提交预测</button>
-        </div>
-        <p class="hint-text" id="prediction-feedback"></p>
-      </div>
       <div class="task-more">
-        <button type="button" class="chip-button" data-panel-trigger="taskList" aria-controls="task-list-panel" aria-expanded="false">其他任务</button>
+        <button type="button" class="chip-button" id="task-list-trigger" data-panel-trigger="taskList" aria-controls="task-list-panel" aria-expanded="false">其他任务</button>
         <button type="button" class="chip-button" data-panel-trigger="learningObjectives" aria-controls="learning-objectives-panel" aria-expanded="false">学习目标</button>
         <button type="button" class="chip-button" data-panel-trigger="otherThemes" aria-controls="other-themes-panel" aria-expanded="false">后续主题</button>
       </div>
@@ -127,14 +141,49 @@
 
     <div class="feedback-column">
       <section class="panel control-panel" aria-label="运行控制">
-        <h2 class="panel-title">运行控制</h2>
+        <h2 class="panel-title sr-only">舞台和运行</h2>
+        <div class="object-view" aria-label="角色状态">
+          <div class="object-title">舞台</div>
+          <canvas id="stage-path" class="stage-path" width="720" height="400" role="img" aria-label="舞台：海龟走过的路线，下方文字说明位置和步数"></canvas>
+          <div class="object-meta" id="object-meta">角色还没有动过。</div>
+        </div>
+        <div class="result-panel" id="result-panel" data-panel="result" aria-label="结果区">
+          <div id="result-content">
+            <p class="muted">运行一次，就能看到结果啦。</p>
+          </div>
+          <details id="result-details">
+            <summary>运行详情</summary>
+            <div class="result-details-body">
+              <div id="result-detail-content"></div>
+              <div class="result-output" id="live-output" hidden></div>
+              <div class="prediction-compare" id="prediction-compare" hidden>
+                <div class="compare-title">预测和结果</div>
+                <div class="compare-grid">
+                  <span>你的预测</span><strong id="compare-prediction">—</strong>
+                  <span>实际观察</span><strong id="compare-actual">—</strong>
+                  <span>是否一致</span><strong id="compare-match">—</strong>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+        <div class="prediction-box" id="prediction-box">
+          <label for="prediction-input" id="prediction-label">先猜一猜角色会动几次？</label>
+          <div class="prediction-row">
+            <input type="number" id="prediction-input" aria-labelledby="prediction-label" min="0" max="1000" inputmode="numeric" value="">
+            <button type="button" class="primary-button" id="prediction-submit">提交预测</button>
+          </div>
+          <p class="hint-text" id="prediction-feedback"></p>
+        </div>
         <div class="control-row">
-          <button type="button" class="primary-button" id="run-button">运行</button>
+          <button type="button" class="primary-button run-main" id="run-button">运行</button>
           <button type="button" class="ghost-button" id="debug-button" disabled>单步调试</button>
           <button type="button" class="danger-button" id="stop-button" disabled>停止</button>
-          <button type="button" class="ghost-button" id="reset-button">重置本题画布</button>
         </div>
-        <p class="hint-text" id="run-hint">先完成预测，就可以运行啦。</p>
+        <div class="control-row control-row-quiet">
+          <p class="hint-text" id="run-hint">先完成预测，就可以运行啦。</p>
+          <button type="button" class="ghost-button quiet-button" id="reset-button">重置本题画布</button>
+        </div>
         <button type="button" class="ghost-button" id="run-locate" hidden>定位积木</button>
         <div class="debug-panel" id="debug-panel" hidden aria-label="单步调试控制">
           <div class="control-row">
@@ -154,56 +203,35 @@
           <button type="button" class="chip-button" id="result-tab-result" data-slot="result" aria-controls="result-panel" aria-pressed="true">查看结果</button>
           <button type="button" class="chip-button" id="result-tab-tutor" data-slot="tutor" aria-controls="tutor-panel" aria-pressed="false">求助</button>
         </div>
-        <div class="object-view" aria-label="角色状态">
-          <div class="object-title">舞台</div>
-          <div class="stage-track" id="stage-track" tabindex="0" role="region" aria-label="累计步数舞台，可左右滚动">
-            <div class="stage-lane" id="stage-lane">
-              <div id="stage-ticks" aria-hidden="true"></div>
-              <div class="stage-target" id="stage-target" hidden aria-hidden="true"></div>
-              <div class="stage-actor" id="stage-actor">🐢</div>
-            </div>
-          </div>
-          <canvas id="stage-path" class="stage-path" width="360" height="180" aria-label="海龟实际走过的路线" hidden></canvas>
-          <div class="object-meta" id="object-meta">角色还没有动过。</div>
-        </div>
       </section>
 
-      <section class="panel result-panel" id="result-panel" data-panel="result" aria-label="结果区">
-        <div id="result-content">
-          <p class="muted">运行一次，就能看到结果啦。</p>
-        </div>
-        <details id="result-details">
-          <summary>运行详情</summary>
-          <div class="result-details-body">
-            <div id="result-detail-content"></div>
-            <div class="result-output" id="live-output" hidden></div>
-            <div class="prediction-compare" id="prediction-compare" hidden>
-              <div class="compare-title">预测和结果</div>
-              <div class="compare-grid">
-                <span>你的预测</span><strong id="compare-prediction">—</strong>
-                <span>实际观察</span><strong id="compare-actual">—</strong>
-                <span>是否一致</span><strong id="compare-match">—</strong>
-              </div>
-            </div>
-          </div>
-        </details>
-      </section>
 
       <section class="panel tutor-panel" id="tutor-panel" data-panel="tutor" aria-labelledby="tutor-title">
         <div class="tutor-head">
-          <h2 class="panel-title" id="tutor-title">AI 小老师</h2>
+          <span class="tutor-avatar" aria-hidden="true"><svg focusable="false"><use href="#turtle"/></svg></span>
+          <h2 class="panel-title" id="tutor-title">海龟老师</h2>
           <span class="mode-badge" id="tutor-mode-badge" hidden></span>
+          <button type="button" class="ghost-button tutor-expand" id="tutor-expand" aria-expanded="false" aria-controls="tutor-panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true" focusable="false"><path d="M6 15l6-6 6 6"/></svg>
+            <span>展开</span>
+          </button>
+          <p class="tutor-stage-mini" id="tutor-stage-mini" hidden><svg aria-hidden="true" focusable="false"><use href="#turtle"/></svg><span id="tutor-stage-mini-text"></span></p>
         </div>
         <div class="tutor-body tutor-chat" id="tutor-chat">
-          <div class="tutor-chat-log" id="tutor-chat-log" role="log" aria-label="和小老师的对话" aria-live="polite">
-            <p class="muted">有哪一步想一起看看？</p>
+          <div class="tutor-chat-log" id="tutor-chat-log" role="log" aria-label="和海龟老师的对话" aria-live="polite">
+            <p class="tutor-welcome">你好，我是海龟老师。搭积木时卡住了，随时问我。</p>
+          </div>
+          <div class="tutor-quick" id="tutor-quick" aria-label="常用问题">
+            <button type="button" class="quick-chip" data-quick="给我一点提示">给我一点提示</button>
+            <button type="button" class="quick-chip" data-quick="换个例子讲讲">换个例子</button>
+            <button type="button" class="quick-chip" data-quick="下一步做什么？">下一步做什么？</button>
           </div>
           <form class="tutor-composer" id="tutor-chat-form">
-            <label for="tutor-chat-input">你的问题</label>
+            <label for="tutor-chat-input" class="sr-only">你的问题</label>
             <p class="muted" id="tutor-chat-selection" hidden></p>
             <p class="muted tutor-speech-note" id="tutor-speech-note" aria-live="polite" hidden></p>
             <div class="tutor-composer-box">
-              <textarea id="tutor-chat-input" rows="2" maxlength="300" placeholder="例如：这块积木是什么意思？"></textarea>
+              <textarea id="tutor-chat-input" rows="2" maxlength="300" placeholder="想问点什么？"></textarea>
               <div class="tutor-composer-actions">
                 <div class="tutor-speech-actions">
                   <span class="speech-tool">

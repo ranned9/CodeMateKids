@@ -62,6 +62,11 @@ def learning_reply(context: dict[str, Any], decision: Decision, bundle: CourseBu
             message, next_step = "好，轮到你自己试试。", "回到积木，准备好就运行"
     if selected:
         message, next_step = selected["message"], selected["nextStep"]
+    elif decision.level and pattern in ("not_run", "unknown"):
+        ladder = context.get("hint_ladder", [])
+        hint = next((hint for hint in reversed(ladder) if hint["level"] <= decision.level), None)
+        if hint:
+            message, next_step = hint["promptText"], hint["executableNextStep"]
     return {
         "action": action,
         "message": message,
@@ -132,6 +137,11 @@ def reply(
     if selected is None:
         payload = dict(SAFE_FALLBACK)
         payload["answerLevel"] = 1
+        task = bundle.tasks.get(task_id, {})
+        if decision.level and task.get("teaching", {}).get("useHintLadder"):
+            hint = next((hint for hint in reversed(task["hintLadder"]) if hint["level"] <= decision.level), None)
+            if hint:
+                payload.update(message=hint["promptText"], nextStep=hint["executableNextStep"])
     else:
         payload = {
             "action": selected.get("action", decision.action),

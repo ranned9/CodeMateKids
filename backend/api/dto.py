@@ -19,7 +19,7 @@ Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN)]
 class LearningScope(ApiModel):
     """一次练习的定位四元组；全部可选，缺省走 0.4.0 原路径。"""
 
-    courseId: str = Field(default="demo-loop", max_length=64)
+    courseId: Identifier | None = None
     contentVersion: str | None = Field(default=None, pattern=CONTENT_VERSION_PATTERN)
     taskId: str | None = Field(default=None, max_length=64)
     workspaceId: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
@@ -66,6 +66,7 @@ class StartupCheckResponse(ApiModel):
     checks: list[StartupCheckItem]
     python: PythonVersionInfo
     courseVersion: int
+    courseId: str = ""
     schemaVersion: str
     tutorMode: Literal["mock", "model"]
     tutorChatEnabled: bool = True
@@ -193,6 +194,7 @@ class TutorHintResponse(ApiModel):
 
 class TransferInfo(ApiModel):
     taskId: str
+    title: str | None = None
     status: str
     support: str
     runRequestId: str | None = None

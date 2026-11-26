@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>舞台效果图：画正方形 / 走到路口再转弯</title>
+<style>
+  :root {
+    --ink: #1D2B3A; --ink-soft: #5B6878; --paper: #F3E9D2; --panel: #FBF7EC;
+    --line: #E3D6B9; --turtle: #4E9A5B; --turtle-dark: #2F6B3C; --coral: #E9724C; --coral-soft: #FBE3D9;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--paper); color: var(--ink);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; font-size: 15px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .lead { color: var(--ink-soft); margin: 0 0 24px; }
+  section { background: var(--panel); border-radius: 18px; padding: 18px 20px 20px; margin-bottom: 24px; }
+  h2 { font-size: 18px; margin: 0 0 14px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  figure { margin: 0; }
+  figcaption { font-size: 13px; font-weight: 700; color: var(--ink-soft); margin-bottom: 6px; }
+  svg.stage { display: block; width: 100%; height: auto; border-radius: 16px; }
+  .meta { font-size: 13px; color: var(--ink); margin-top: 6px; line-height: 1.5; }
+  .meta b { color: var(--turtle-dark); }
+  .meta .warn { color: #B23A2A; font-weight: 700; }
+  .notes { margin: 14px 0 0; font-size: 13px; color: var(--ink-soft); line-height: 1.7; }
+  .notes strong { color: var(--ink); }
+  .num { font: 700 12px system-ui, sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+  .lbl { font: 700 11px "PingFang SC", "Microsoft YaHei", sans-serif; fill: var(--ink-soft); }
+  .deg { font: 700 10px system-ui, sans-serif; fill: var(--turtle-dark); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="turtle" viewBox="0 0 64 48">
+      <ellipse cx="18" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+      <ellipse cx="42" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+      <ellipse cx="18" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+      <ellipse cx="42" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+      <path d="M6 24 L1 21 L1 27 Z" fill="#86BE79"/>
+      <circle cx="55" cy="24" r="7.5" fill="#86BE79"/>
+      <circle cx="57.5" cy="21" r="1.8" fill="#1D2B3A"/>
+      <ellipse cx="30" cy="24" rx="21" ry="16.5" fill="#4E9A5B" stroke="#2F6B3C" stroke-width="2.5"/>
+      <polygon points="30,15 38,19.5 38,28.5 30,33 22,28.5 22,19.5" fill="#6DB37A" stroke="#2F6B3C" stroke-width="1.6"/>
+      <path d="M30 15 L30 8.5 M38 19.5 L46 15 M38 28.5 L46 33 M30 33 L30 39.5 M22 28.5 L14 33 M22 19.5 L14 15" stroke="#2F6B3C" stroke-width="1.6"/>
+    </symbol>
+    <!-- 正方形：一格 60，原点落在 (150,130) -->
+    <pattern id="grid60" patternUnits="userSpaceOnUse" x="30" y="10" width="60" height="60">
+      <path d="M60 0 H0 V60" fill="none" stroke="#E3D6B9" stroke-width="1"/>
+    </pattern>
+    <!-- 路口：一格 40，原点落在 (80,150) -->
+    <pattern id="grid40" patternUnits="userSpaceOnUse" x="0" y="30" width="40" height="40">
+      <path d="M40 0 H0 V40" fill="none" stroke="#C9DDB4" stroke-width="1"/>
+    </pattern>
+    <symbol id="flag" viewBox="0 0 24 34" overflow="visible">
+      <line x1="2" y1="34" x2="2" y2="2" stroke="#1D2B3A" stroke-width="2" stroke-linecap="round"/>
+      <path d="M3 3 L22 9 L3 15 Z" fill="#E9724C"/>
+    </symbol>
+    <symbol id="lettuce" viewBox="-14 -14 28 28" overflow="visible">
+      <circle cx="-6" cy="2" r="8" fill="#8FCB6B"/>
+      <circle cx="6" cy="2" r="8" fill="#8FCB6B"/>
+      <circle cx="0" cy="-5" r="9" fill="#A7DA82"/>
+      <path d="M0 -10 V8 M-6 -2 L0 4 M6 -2 L0 4" stroke="#5E9E45" stroke-width="1.5" fill="none"/>
+    </symbol>
+  </defs>
+</svg>
+
+<h1>舞台效果图（静态）</h1>
+<p class="lead">每个任务分三格展示：运行前、过程中或走错时、完成时。动画这次先不做。</p>
+
+<!-- ============ 画正方形 ============ -->
+<section>
+  <h2>让海龟画正方形</h2>
+  <div class="row">
+
+    <figure>
+      <figcaption>运行前：先看到目标</figcaption>
+      <svg class="stage" viewBox="0 0 360 200" role="img" aria-label="虚线正方形目标，海龟在起点">
+        <rect width="360" height="200" fill="#FFFDF7"/>
+        <rect width="360" height="200" fill="url(#grid60)"/>
+        <rect x="150" y="70" width="60" height="60" fill="none" stroke="#4E9A5B" stroke-width="2.5" stroke-dasharray="7 6" opacity=".55"/>
+        <use href="#flag" x="132" y="96" width="24" height="34"/>
+        <text class="lbl" x="104" y="150">起点</text>
+        <g transform="translate(150 130)"><use href="#turtle" x="-20" y="-15" width="40" height="30"/></g>
+        <text class="lbl" x="226" y="104">目标：四条边，回到起点</text>
+      </svg>
+      <p class="meta">海龟在起点，朝右。虚线是要画的正方形。</p>
+    </figure>
+
+    <figure>
+      <figcaption>分步查看：数得出走了几次</figcaption>
+      <svg class="stage" viewBox="0 0 360 200" role="img" aria-label="已走两条边">
+        <rect width="360" height="200" fill="#FFFDF7"/>
+        <rect width="360" height="200" fill="url(#grid60)"/>
+        <rect x="150" y="70" width="60" height="60" fill="none" stroke="#4E9A5B" stroke-width="2.5" stroke-dasharray="7 6" opacity=".35"/>
+        <use href="#flag" x="132" y="96" width="24" height="34"/>
+        <path d="M150 130 H210 V70" fill="none" stroke="#4E9A5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M198 130 A12 12 0 0 1 210 118" fill="none" stroke="#2F6B3C" stroke-width="1.5"/>
+        <text class="deg" x="184" y="116">90°</text>
+        <circle cx="180" cy="150" r="9" fill="#4E9A5B"/><text class="num" x="180" y="150">1</text>
+        <circle cx="230" cy="100" r="9" fill="#4E9A5B"/><text class="num" x="230" y="100">2</text>
+        <g transform="translate(210 70) rotate(-90)"><use href="#turtle" x="-20" y="-15" width="40" height="30"/></g>
+      </svg>
+      <p class="meta">第 2 次前进后，海龟朝上。<b>还差 2 条边。</b></p>
+    </figure>
+
+    <figure>
+      <figcaption>完成：正方形闭合、涂色</figcaption>
+      <svg class="stage" viewBox="0 0 360 200" role="img" aria-label="完整正方形">
+        <rect width="360" height="200" fill="#FFFDF7"/>
+        <rect width="360" height="200" fill="url(#grid60)"/>
+        <rect x="150" y="70" width="60" height="60" fill="#4E9A5B" opacity=".18"/>
+        <path d="M150 130 H210 V70 H150 Z" fill="none" stroke="#4E9A5B" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M198 130 A12 12 0 0 1 210 118 M210 82 A12 12 0 0 1 198 70 M162 70 A12 12 0 0 1 150 82 M150 118 A12 12 0 0 1 162 130" fill="none" stroke="#2F6B3C" stroke-width="1.5"/>
+        <circle cx="180" cy="150" r="9" fill="#4E9A5B"/><text class="num" x="180" y="150">1</text>
+        <circle cx="230" cy="100" r="9" fill="#4E9A5B"/><text class="num" x="230" y="100">2</text>
+        <circle cx="180" cy="50" r="9" fill="#4E9A5B"/><text class="num" x="180" y="50">3</text>
+        <circle cx="130" cy="100" r="9" fill="#4E9A5B"/><text class="num" x="130" y="100">4</text>
+        <use href="#flag" x="132" y="96" width="24" height="34"/>
+        <g transform="translate(150 130)"><use href="#turtle" x="-20" y="-15" width="40" height="30"/></g>
+        <g transform="translate(262 34)">
+          <rect x="-40" y="-14" width="80" height="28" rx="14" fill="#4E9A5B"/>
+          <text x="0" y="1" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">回到起点</text>
+        </g>
+      </svg>
+      <p class="meta"><b>前进 4 次、转弯 4 次</b>，和你猜的一样吗？</p>
+    </figure>
+  </div>
+  <p class="notes">
+    <strong>改动点：</strong>方格纸背景，一格代表一步。显示范围按任务固定，乌龟和格子不会随路线缩放。
+    运行前就画出虚线目标和起点旗子。每条边标上前进序号 ①–④，每个拐角画 90° 圆弧，方便和预测题对数。闭合后正方形内部涂浅绿色。
+  </p>
+</section>
+
+<!-- ============ 走到路口再转弯 ============ -->
+<section>
+  <h2>走到路口再转弯</h2>
+  <div class="row">
+
+    <figure>
+      <figcaption>运行前：有路、有路口、有终点</figcaption>
+      <svg class="stage" viewBox="0 0 360 200" role="img" aria-label="小路和路口，终点在路口上方">
+        <rect width="360" height="200" fill="#E7F2DA"/>
+        <rect width="360" height="200" fill="url(#grid40)"/>
+        <rect x="50" y="136" width="250" height="28" rx="14" fill="#EBDDB8"/>
+        <rect x="186" y="40" width="28" height="124" rx="14" fill="#EBDDB8"/>
+        <path d="M80 150 H200 V70" fill="none" stroke="#4E9A5B" stroke-width="2.5" stroke-dasharray="7 6" opacity=".55"/>
+        <text class="lbl" x="116" y="182">1</text><text class="lbl" x="156" y="182">2</text><text class="lbl" x="196" y="182">3</text>
+        <g transform="translate(166 96)">
+          <line x1="0" y1="0" x2="0" y2="30" stroke="#8A6A3C" stroke-width="2.5"/>
+          <rect x="-17" y="-12" width="34" height="16" rx="3" fill="#8A6A3C"/>
+          <text x="0" y="-4" fill="#fff" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">路口</text>
+        </g>
+        <circle cx="200" cy="70" r="20" fill="none" stroke="#E9724C" stroke-width="2" stroke-dasharray="5 4"/>
+        <use href="#lettuce" x="186" y="56" width="28" height="28"/>
+        <text class="lbl" x="226" y="74">终点</text>
+        <g transform="translate(80 150)"><use href="#turtle" x="-16" y="-12" width="32" height="24"/></g>
+      </svg>
+      <p class="meta">海龟在起点，朝右。走到路口再向上转。</p>
+    </figure>
+
+    <figure>
+      <figcaption>走错时：一眼看出在哪里转早了</figcaption>
+      <svg class="stage" viewBox="0 0 360 200" role="img" aria-label="海龟在第 2 步转弯，走到了草地上">
+        <rect width="360" height="200" fill="#E7F2DA"/>
+        <rect width="360" height="200" fill="url(#grid40)"/>
+        <rect x="50" y="136" width="250" height="28" rx="14" fill="#EBDDB8"/>
+        <rect x="186" y="40" width="28" height="124" rx="14" fill="#EBDDB8"/>
+        <path d="M80 150 H200 V70" fill="none" stroke="#4E9A5B" stroke-width="2.5" stroke-dasharray="7 6" opacity=".35"/>
+        <use href="#lettuce" x="186" y="56" width="28" height="28"/>
+        <path d="M80 150 H160 V70" fill="none" stroke="#4E9A5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="160" cy="150" r="10" fill="#E9724C"/>
+        <text x="160" y="151" fill="#fff" font-size="13" font-weight="800" text-anchor="middle" dominant-baseline="central">!</text>
+        <g transform="translate(96 182)">
+          <rect x="-4" y="-12" width="128" height="20" rx="10" fill="#FBE3D9"/>
+          <text x="60" y="-2" fill="#B23A2A" font-size="11" font-weight="700" text-anchor="middle" dominant-baseline="central">第 2 步就转弯了</text>
+        </g>
+        <g transform="translate(160 70) rotate(-90)"><use href="#turtle" x="-16" y="-12" width="32" height="24"/></g>
+      </svg>
+      <p class="meta"><span class="warn">海龟走到草地上了。</span>路口在第 3 步，看看「如果」里比较的是几步。</p>
+    </figure>
+
+    <figure>
+      <figcaption>完成：到达终点，吃到生菜</figcaption>
+      <svg class="stage" viewBox="0 0 360 200" role="img" aria-label="海龟沿路到达终点">
+        <rect width="360" height="200" fill="#E7F2DA"/>
+        <rect width="360" height="200" fill="url(#grid40)"/>
+        <rect x="50" y="136" width="250" height="28" rx="14" fill="#EBDDB8"/>
+        <rect x="186" y="40" width="28" height="124" rx="14" fill="#EBDDB8"/>
+        <path d="M80 150 H200 V70" fill="none" stroke="#4E9A5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M188 150 A12 12 0 0 1 200 138" fill="none" stroke="#2F6B3C" stroke-width="1.5"/>
+        <text class="deg" x="168" y="134">90°</text>
+        <circle cx="120" cy="174" r="8" fill="#4E9A5B"/><text class="num" x="120" y="174">1</text>
+        <circle cx="160" cy="174" r="8" fill="#4E9A5B"/><text class="num" x="160" y="174">2</text>
+        <circle cx="200" cy="174" r="8" fill="#4E9A5B"/><text class="num" x="200" y="174">3</text>
+        <circle cx="230" cy="130" r="8" fill="#4E9A5B"/><text class="num" x="230" y="130">4</text>
+        <circle cx="230" cy="90" r="8" fill="#4E9A5B"/><text class="num" x="230" y="90">5</text>
+        <g transform="translate(200 40)">
+          <use href="#lettuce" x="-10" y="-10" width="20" height="20"/>
+          <circle cx="8" cy="-6" r="5" fill="#E7F2DA"/>
+          <circle cx="10" cy="0" r="4" fill="#E7F2DA"/>
+        </g>
+        <g transform="translate(200 70) rotate(-90)"><use href="#turtle" x="-16" y="-12" width="32" height="24"/></g>
+        <g transform="translate(290 40)">
+          <rect x="-40" y="-14" width="80" height="28" rx="14" fill="#4E9A5B"/>
+          <text x="0" y="1" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">到达终点</text>
+        </g>
+      </svg>
+      <p class="meta"><b>走了 3 步才转弯</b>，又向上走了 2 步。</p>
+    </figure>
+  </div>
+  <p class="notes">
+    <strong>改动点：</strong>背景换成草地加小路，路口往右还有一段岔路，所以"不转弯也能继续走"，孩子得自己判断在哪儿转。
+    路口立路牌，终点放一棵生菜。路边标出 1、2、3 步。走错时目标路线保留为淡虚线，转弯的位置用珊瑚色标记，并说明在第几步转的。
+  </p>
+</section>
+
+</body>
+</html>

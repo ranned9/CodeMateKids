@@ -1,7 +1,12 @@
 /** 课程区：只突出当前任务；任务列表、学习目标与后续主题按需展开。 */
+import { deriveTargetSteps } from "../ux/resultSummary.js";
 import { appendParagraph, clearNode } from "../util/dom.js";
 
 const TYPE_LABEL = { main: "主任务", variant: "变式任务" };
+
+function taskBadge(task) {
+  return task.teaching?.badge || (task.teaching?.goalKind === "square" ? "迁移挑战" : TYPE_LABEL[task.type] || "任务");
+}
 
 export function renderCourse(container, state, callbacks) {
   if (!container) {
@@ -36,7 +41,7 @@ export function buildCurrentTask(task, state, callbacks = {}) {
   heading.textContent = task.title;
   const tag = document.createElement("span");
   tag.className = "task-tag";
-  tag.textContent = task.teaching?.goalKind === "square" ? "迁移挑战" : TYPE_LABEL[task.type] || "任务";
+  tag.textContent = taskBadge(task);
   heading.appendChild(tag);
   header.appendChild(heading);
   if (callbacks.taskReader) {
@@ -47,12 +52,15 @@ export function buildCurrentTask(task, state, callbacks = {}) {
     card.appendChild(callbacks.taskReader.status);
   }
 
+  const goal = buildGoal(task);
+  if (goal) card.appendChild(goal);
+
   const objective = document.createElement("p");
   objective.textContent = task.objective;
   card.appendChild(objective);
 
   const criterion = document.createElement("p");
-  criterion.className = "muted";
+  criterion.className = "muted task-criterion";
   const first = (task.successCriteria || [])[0];
   criterion.textContent = `完成标准：${first?.description || "按目标完成这一轮练习"}`;
   card.appendChild(criterion);
@@ -89,6 +97,30 @@ export function buildCurrentTask(task, state, callbacks = {}) {
   return card;
 }
 
+/** 目标卡：把这题要比较的量放大显示，与舞台上的目标旗一致。 */
+function buildGoal(task) {
+  const goalLabel = task.teaching?.goalLabel || (task.teaching?.goalKind === "square" ? "正方形" : null);
+  const steps = deriveTargetSteps(task);
+  if (!goalLabel && steps == null) return null;
+  const goal = document.createElement("div");
+  goal.className = goalLabel ? "task-goal is-shape" : "task-goal";
+  const label = document.createElement("span");
+  label.className = "task-goal-label";
+  label.textContent = "目标";
+  goal.appendChild(label);
+  const value = document.createElement("span");
+  value.className = "task-goal-value";
+  value.textContent = goalLabel || String(steps);
+  goal.appendChild(value);
+  if (!goalLabel) {
+    const unit = document.createElement("span");
+    unit.className = "task-goal-unit";
+    unit.textContent = "步";
+    goal.appendChild(unit);
+  }
+  return goal;
+}
+
 function renderTaskList(container, state, callbacks) {
   if (!container) {
     return;
@@ -121,7 +153,7 @@ function renderTaskList(container, state, callbacks) {
     title.textContent = task.title;
     const tag = document.createElement("span");
     tag.className = "task-tag";
-    tag.textContent = task.teaching?.goalKind === "square" ? "迁移挑战" : TYPE_LABEL[task.type] || "任务";
+    tag.textContent = taskBadge(task);
     title.appendChild(tag);
     card.appendChild(title);
     appendParagraph(card, task.objective, "muted");

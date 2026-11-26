@@ -129,7 +129,7 @@ export const API = {
   startup: () => getJson("/api/v1/startup/check"),
   startupRefresh: () => getJson("/api/v1/startup/check?refresh=true"),
   schema: () => getJson("/api/v1/blocks/schema"),
-  course: (courseId = "demo-loop") => getJson(`/api/v1/course/${courseId}`),
+  course: (courseId) => getJson(courseId ? `/api/v1/course/${encodeURIComponent(courseId)}` : "/api/v1/course"),
   prediction: (taskId, value, learningContext) =>
     postJson("/api/v1/session/prediction", { taskId, value, learningContext }, classroomStudent),
   feedback: (taskId, kind, note = "") =>

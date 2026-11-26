@@ -116,8 +116,8 @@ def test_number_block_in_repeat_uses_count_limits(value) -> None:
     ("motion.move", "steps", 0),
     ("motion.move", "steps", 1.5),
     ("motion.move", "steps", 101),
-    ("motion.turn", "degrees", 45),
-    ("motion.turn", "degrees", 90.5),
+    ("motion.turn", "degrees", float("nan")),
+    ("motion.turn", "degrees", float("inf")),
 ])
 def test_number_block_respects_motion_parameter_limits(kind, field, value) -> None:
     with pytest.raises(ProgramError) as exc:

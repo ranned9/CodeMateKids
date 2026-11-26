@@ -43,7 +43,9 @@ export function createPredictionWorkflow({ state, elements, isRunning, onChange,
       programRevision: state.programRevision,
       source: state.prediction.has(taskId) ? "reguess" : "initial",
     };
-    const belongsToCourse = () => state.contentVersion === contentVersion && state.studentId === studentId;
+    const courseId = state.course?.course?.courseId;
+    const belongsToCourse = () => state.contentVersion === contentVersion && state.studentId === studentId
+      && state.course?.course?.courseId === courseId;
     state.predictionPending.set(taskId, record);
     render();
     onChange();

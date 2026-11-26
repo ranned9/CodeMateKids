@@ -225,6 +225,7 @@ def test_api_square_checks_structure_and_summarizes_help(client) -> None:
 
     default_step = deepcopy(attempt)
     default_step["root"]["next"]["body"][0]["inputs"] = {}
+    default_step["root"]["next"]["body"][1]["inputs"]["degrees"] = -90
     result = _run(client, scope, default_step, "run-square-assisted", _predict(client, scope, default_step, 4), [hint["requestId"]])
     assert result["success"] is True and result["learning"]["structureMet"] is True
     assert len(result["learning"]["replay"]["actions"]) == 8
@@ -233,11 +234,24 @@ def test_api_square_checks_structure_and_summarizes_help(client) -> None:
     assert summary["transfer"]["status"] == "completed" and summary["transfer"]["support"] == "assisted"
 
     fresh_scope = {**scope, "workspaceId": "ws-fresh-square"}
+    attempt["root"]["next"]["body"][1]["inputs"]["degrees"] = 450
     result = _run(client, fresh_scope, attempt, "run-square-independent", _predict(client, fresh_scope, attempt, 4))
     assert result["success"] is True
     summary = client.get("/api/v1/session/summary").json()["data"]
     assert summary["transfer"]["support"] == "none"
     assert summary["transfer"]["runRequestId"] == result["requestId"]
+
+
+def test_api_square_fractional_turn_does_not_claim_the_route_is_correct(client) -> None:
+    scope = _learning_scope(client, "transfer-square")
+    attempt = _square_program()
+    attempt["root"]["next"]["body"][1]["inputs"]["degrees"] = 90.5
+    result = _run(client, scope, attempt, "run-square-approximate", _predict(client, scope, attempt, 4))
+    assert result["success"] is False
+    assert result["learning"]["routeMet"] is False
+    assert result["learning"]["structureMet"] is False
+    assert any("转一个直角" in message for message in result["failures"])
+    assert all("路线走对了" not in message for message in result["failures"])
 
 
 def test_model_wording_cannot_replace_decision_or_invent_numeric_facts(client, app, monkeypatch) -> None:

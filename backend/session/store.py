@@ -66,7 +66,10 @@ class SessionStore:
             self.memory_available = False
             return []
 
-    def add_prediction(self, task_id: str, value: int, content_version: str | None = None) -> int:
+    def add_prediction(
+        self, task_id: str, value: int, content_version: str | None = None, *,
+        course_id: str = "demo-loop", knowledge_point_id: str = "kp.loop",
+    ) -> int:
         with self._lock:
             history = self.predictions.setdefault(task_id, [])
             history.append({"value": value, "at": _now(), "contentVersion": content_version})
@@ -79,6 +82,8 @@ class SessionStore:
             confidence=0.9,
             alternatives=["可能是随口猜的", "可能把次数和步数弄混了"],
             follow_up="运行后把预测和实际结果放在一起对照",
+            course_id=course_id,
+            knowledge_point_id=knowledge_point_id,
         )
         return attempts
 
@@ -107,18 +112,22 @@ class SessionStore:
 
     def confirm_teaching_hints(self, scope: str, task_id: str, ids: list[str] | None) -> list[dict[str, Any]]:
         hints, newly_seen = self.teaching.confirm_hints(scope, ids)
-        for hint_id in newly_seen:
+        for hint in hints:
+            hint_id = hint["hintId"]
+            if hint_id not in newly_seen:
+                continue
+            points = hint.get("knowledgePoints", [])
             self.add_evidence(
                 task_id=task_id, source_type="hint_usage", observed_fact="这一轮展示了小老师的提示。",
                 interpretation_text="课堂提供过帮助。", confidence=1.0,
                 alternatives=["孩子可能按自己的方法继续"],
                 follow_up="看看下一次运行。", request_id=hint_id,
+                course_id=scope.split("|", 1)[0],
+                knowledge_point_id=next(iter(points), "kp.loop"),
             )
-        for hint in hints:
-            if hint["hintId"] in newly_seen:
-                self.observe(scope, hint.get("knowledgePoints", []), "hint", hint["hintId"], "hint_shown", {
-                    "action": hint.get("action", "hint"), "level": hint["level"], "pattern": hint["pattern"],
-                })
+            self.observe(scope, points, "hint", hint_id, "hint_shown", {
+                "action": hint.get("action", "hint"), "level": hint["level"], "pattern": hint["pattern"],
+            })
         return hints
 
     def add_evidence(
@@ -133,6 +142,7 @@ class SessionStore:
         request_id: str | None = None,
         knowledge_point_id: str = "kp.loop",
         correction_of: str | None = None,
+        course_id: str = "demo-loop",
     ) -> dict[str, Any]:
         if source_type not in SOURCE_TYPES:
             raise ValueError("来源类型越界")
@@ -145,7 +155,7 @@ class SessionStore:
             record = {
                 "evidenceId": evidence_id,
                 "knowledgePointId": knowledge_point_id,
-                "courseId": "demo-loop",
+                "courseId": course_id,
                 "taskId": task_id,
                 "occurredAt": _now(),
                 "sourceType": source_type,
@@ -237,15 +247,11 @@ class SessionStore:
                 completed.append(titles.get(task_id, task_id))
                 if any(item["independent"] for item in history[task_id]):
                     independent.append(titles.get(task_id, task_id))
-        main_id = next(
-            (task_id for task_id in bundle.task_order() if bundle.tasks[task_id]["type"] == "main"),
-            "main",
-        )
-        variant_id = bundle.tasks[main_id]["variantTaskId"]
+        main_id = bundle.entry_task_id
+        variant_id = next_task_id(bundle.tasks[main_id])
         variant_completed = any(item["outcome"] == "succeeded" for item in history[variant_id])
         main_completed = any(item["outcome"] == "succeeded" for item in history[main_id])
-        transfer_id = next((task_id for task_id, task in bundle.tasks.items()
-                            if task.get("teaching", {}).get("goalKind") == "square"), None)
+        transfer_id = bundle.transfer_task_id
         with self._lock:
             skipped = sorted(task_id for task_id in self.skipped
                              if self._skip_versions.get(task_id) in (None, bundle.content_version))
@@ -255,9 +261,9 @@ class SessionStore:
         to_verify: list[str] = []
         transfer = _transfer_summary(transfer_id, history[transfer_id], skipped) if transfer_id else None
         if transfer and transfer["support"] != "none":
-            to_verify.append("下次可以试着独立完成画正方形。")
+            to_verify.append(f"下次可以试着独立完成「{titles[transfer_id]}」。")
         elif not transfer and not variant_completed:
-            to_verify.append("还没在新情境里独立用过循环")
+            to_verify.append("还没在新任务里独立练习这节课的内容")
         to_verify.append("这次只观察了当前会话，长期表现还需要以后再看")
         missing: list[str] = []
         if not any(history.values()):
@@ -266,15 +272,14 @@ class SessionStore:
             missing.append("有任务被暂时跳过，可以稍后回来")
         if not main_completed:
             missing.append("主任务还没完成")
-        recommended_id = next_task_id(bundle.tasks[variant_id if variant_completed else main_id]) if main_completed else main_id
-        if recommended_id not in bundle.runnable_task_ids or (transfer and transfer["status"] == "completed" and recommended_id == transfer_id):
-            recommended_id = None
-        if recommended_id and recommended_id != main_id:
-            next_step = f"去试试：{titles[recommended_id]}"
-        elif main_completed:
-            next_step = "可以休息一下，或者再练一次变式任务"
-        else:
-            next_step = "先把重复次数改成目标步数，运行看看"
+        current = main_id
+        recommended_id = None
+        while current is not None:
+            if current not in bundle.blocked and not any(item["outcome"] == "succeeded" for item in history[current]):
+                recommended_id = current
+                break
+            current = next_task_id(bundle.tasks[current])
+        next_step = f"去试试：{titles[recommended_id]}" if recommended_id else "可以再练一道题，比较两次的结果。"
         data = {
             "concepts": list(course["learningObjectives"]),
             "completedTasks": completed,
@@ -288,9 +293,10 @@ class SessionStore:
             "variantCompleted": variant_completed,
             "note": "仅代表本次会话观察，不代表长期能力结论。",
             "taskCount": len(bundle.tasks),
+            "nextTaskId": recommended_id,
         }
         if transfer:
-            data.update(transfer=transfer, nextTaskId=recommended_id)
+            data["transfer"] = {**transfer, "title": titles[transfer_id]}
             transfer_history = history[transfer_id]
             selected_index = next((i for i, record in enumerate(transfer_history)
                                    if record["requestId"] == transfer["runRequestId"]), 0)

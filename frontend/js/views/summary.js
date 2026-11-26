@@ -47,7 +47,7 @@ export async function showSummary({ panel, content, state, callbacks, api = API 
 
   const grid = document.createElement("dl");
   grid.className = "summary-grid";
-  appendRow(grid, "这节课在练", (data.concepts || []).join("；") || "循环");
+  appendRow(grid, "这节课在练", (data.concepts || []).join("；") || "查看本课学习目标");
   appendRow(grid, "完成的任务", (data.completedTasks || []).join("、") || "这次还没有完成的任务");
   appendRow(grid, "能独立做到的事", (data.independentThings || []).join("、") || "这次还没有独立完成的记录");
   appendRow(grid, "还要再看看", (data.toVerify || []).join("；") || "还需要更多观察");
@@ -70,11 +70,11 @@ export async function showSummary({ panel, content, state, callbacks, api = API 
   content.appendChild(note);
 
   const variantButton = document.getElementById("summary-variant");
-  const variantId = [...state.tasks.values()].find((task) => task.type === "main")?.variantTaskId || "variant";
-  const nextTask = state.tasks.get(data.nextTaskId || variantId);
+  const main = [...state.tasks.values()].find((task) => task.type === "main");
+  const nextTask = state.tasks.get(data.nextTaskId === undefined ? main?.nextTaskId ?? main?.variantTaskId : data.nextTaskId);
   if (variantButton) {
     variantButton.disabled = !nextTask?.enterable;
-    variantButton.textContent = nextTask?.enterable ? `去练习 · ${nextTask.title}` : "这节课的加练还没准备好";
+    variantButton.textContent = nextTask?.enterable ? `去练习 · ${nextTask.title}` : "回到课堂选择练习";
   }
   const skippedButton = document.getElementById("summary-skipped");
   if (skippedButton) {

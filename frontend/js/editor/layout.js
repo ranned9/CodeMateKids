@@ -22,7 +22,7 @@ const DEFAULT_VIEWPORT = { w: 720, h: 460, scrollX: 0, scrollY: 0 };
 const COMPACT_BLOCKS = {
   "event.start": { width: 98 },
   "motion.move": { width: 98 },
-  "motion.turn": { width: 132, labels: [["转弯", 12]], fields: { degrees: [52, 64] } },
+  "motion.turn": { width: 156, labels: [["转弯", 12]], fields: { degrees: [52, 90] } },
   "control.repeat": { width: 132, labels: [["重复", 12], ["次", 105]], fields: { times: [49, 49] } },
   "control.if": {
     width: 206,

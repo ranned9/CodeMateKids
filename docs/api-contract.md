@@ -4,7 +4,7 @@
 
 | 功能 | 入口 |
 | --- | --- |
-| 启动、积木和课程 | `GET /startup/check`、`GET /blocks/schema`、`GET /course/{course_id}` |
+| 启动、积木和课程 | `GET /startup/check`、`GET /blocks/schema`、`GET /course`、`GET /course/{course_id}` |
 | 预测、反馈与总结 | `POST /session/prediction`、`POST /session/feedback`、`GET /session/summary` |
 | 运行 | `POST /runs`、`GET /runs/{request_id}`、`GET /runs/{request_id}/events`、`POST /runs/{request_id}/cancel` |
 | 作品 | `POST /projects/save`、`POST /projects/load` |
@@ -18,6 +18,7 @@
 |---|---|---|
 | `elapsedMs` | int | 实际检查耗时，缓存命中时返回原检查耗时 |
 | `cached` | bool | 本次响应是否来自缓存 |
+| `courseId` | string | 当前配置课包的标识 |
 | `contentVersion` | string | `"x.y.z"` 内容版本，供前端对齐课程与回复包 |
 | `runCapability` | object | `{canRun, reasonCode, reasonForChild, workerReady, blockedTaskIds, contentVersion}` |
 
@@ -70,6 +71,9 @@
 
 ## 6. 课程与内容
 
+- `GET /course` 返回 `CMK_COURSE_DIR` 配置的活动课包。旧入口 `GET /course/{course_id}` 仍可用，路径 ID 需与活动课包的 `courseId` 一致。
+- 响应中的 `entryTaskId` 指向主任务。任务的 `nextTaskId`、`successCriteria`、`programCriteria`、`executionCriteria` 和 `teaching` 来自课包。总结按任务链接推荐首个可运行且尚未完成的关卡。
+- 执行条件 `{kind:"motion.turn", inside:"control.if", atSteps:3, only:true}` 校验已执行动作属于指定分支，且发生时累计步数为 3。开启 `only` 时整轮只允许该类动作出现一次。后端用完整事件和舞台终态核对，证据不完整时该条件无法通过。
 - 课程加载期对每个任务 `initialProgram` 执行完整程序结构校验：
   - 结构/规模/课程引用错误 → 课程加载失败（既有 `COURSE_VERSION_UNSUPPORTED`，开发者详情含 `task/code/block`）；
   - 含不可运行积木 → 仅该任务 `blocked`，其他任务不受影响。
@@ -83,7 +87,7 @@
 
 ## 8. 当前作品与程序校验
 
-- 重复次数、向前步数和转弯角度可直接填写，也可存放 `value.number` 积木。次数和步数接受 `1–100` 的整数，角度接受 `90`、`180`、`270`。移走数字积木后恢复相应字段的默认值。
+- 重复次数接受 `1–100` 的整数。新放置的「向前走」每次走一步，旧作品的 `steps` 仍接受 `1–100` 的整数。转角接受有限数值，含负数和小数。正方形按归一化后的 `90°` 或 `270°` 验证直角。这些参数在作品格式中也可存放 `value.number` 积木。移走数字积木后恢复字段默认值。
 - 循环体按 `body` 数组顺序处理每条语句链，各链自头部沿 `next` 执行。
 - 当前作品格式的 `courseRef.version` 必须是正整数。格式不合法时，保存和打开返回 `422 PROGRAM_SCHEMA_INVALID`。课程版本格式合法但本机缺失时，保存返回 `409 COURSE_VERSION_UNSUPPORTED`，打开返回只读结果和原因。
 - 旧版作品迁移时可将整数版本字符串转换为整数。无法转换的旧版版本字符串返回 `422 PROGRAM_MIGRATION_FAILED`。
@@ -93,13 +97,13 @@
 
 ## 9. AI 教学增强
 
-课程内容 `1.3.0` 的工作台使用以下可选字段。预测、运行和辅导仍接受旧版请求。课程响应通过 `nextTaskId` 推荐后续任务，正方形任务的运行同时评估舞台目标和程序结构。
+当前工作台使用以下可选字段。预测、运行和辅导仍接受旧版请求。
 
 - `learningContext.scope` 包含 `contentVersion`、`workspaceId`，也接受 `courseId`、`taskId`。课程版本变化时复用 `COURSE_VERSION_UNSUPPORTED` 错误，提示刷新课程。
 - 预测请求可带 `learningContext.program`，增强响应返回 `predictionId`。运行请求在 `learningContext` 带预测 ID、最近八个已呈现提示 ID 和 `workspaceSource`。程序摘要匹配时，预测才参与错因判断。
-- 运行 SSE `result.learning` 包含 `outcome`、`pattern`、`facts`、`predictionMatch`、`traceQuality` 和可空的 `replay`。`replay.actions` 包含积木 ID、动作种类、动作参数、轮次及执行后的舞台状态。正方形还返回 `routeMet`、`structureMet`。字段附在浏览器 SSE 结果，运行摘要和作品使用原有格式。
+- 运行 SSE `result.learning` 包含 `outcome`、`pattern`、`facts`、`predictionMatch`、`traceQuality` 和可空的 `replay`。`replay.actions` 包含积木 ID、动作种类、动作参数、轮次及执行后的舞台状态。正方形和配置了执行条件的任务还返回 `routeMet`、`structureMet`。字段附在浏览器 SSE 结果，运行摘要和作品使用原有格式。
 - 辅导请求可带当前 `program`、`runRequestId` 和 `seenHintIds`。增强回复的 `learning` 包含 `pattern`、`runRequestId`、`anchorBlockId`、`nextAction`。定位与回放只使用属于当前工作区的程序和结果。
-- 有迁移题的课程总结返回 `transfer` 和 `nextTaskId`，有可引用的观察时补充 `observation`。已验证提示记为 `assisted`。任务工作区明确上报空列表时记为 `none`。缺少帮助证据时记为 `unknown`。
+- 课程总结返回 `nextTaskId`。配置迁移题时还返回带任务标题的 `transfer`，有可引用的观察时补充 `observation`。已验证提示记为 `assisted`。任务工作区明确上报空列表时记为 `none`。缺少帮助证据时记为 `unknown`。
 - 可选模型协议仍为 v1。增强请求发送 `teachingDecision`，带动作、级别、错因、可引用事实和下一步意图。校验失败时使用本地回复。
 
 ## 10. 网页模型接入与多轮教学

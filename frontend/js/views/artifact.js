@@ -33,9 +33,8 @@ export function resetDerivedState(state, dom = {}) {
   }
   resetObjectView({
     meta: dom["object-meta"],
-    actor: dom["stage-actor"],
-    track: dom["stage-track"],
-  });
+    path: dom["stage-path"],
+  }, state.tasks?.get(state.activeTaskId) ?? null);
   if (dom["result-content"]) {
     clearNode(dom["result-content"]);
     appendParagraph(dom["result-content"], "运行一次，就能看到结果啦。", "muted");

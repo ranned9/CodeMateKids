@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+import json
+
+from fastapi.testclient import TestClient
+
+from backend.app import create_app
 from backend.domain.blocks import load_blocks
 from backend.domain.program import evaluate_criteria
 from backend.service.course import _task_block_reason
+from tests.helpers import ROOT, drain, simple_program, submit
 
 
 def _valid_program(client) -> dict:
@@ -20,10 +27,12 @@ def test_course_shape_and_single_theme(client) -> None:
     assert data["course"]["courseId"] == "demo-loop"
     assert data["course"]["reviewStatus"] == "reviewed"
     assert 1 <= len(data["course"]["learningObjectives"]) <= 3
-    assert [task["taskId"] for task in data["tasks"]] == ["main", "variant", "transfer-square"]
+    assert [task["taskId"] for task in data["tasks"]] == ["main", "variant", "transfer-square", "branch-crossroad"]
     assert data["tasks"][1]["nextTaskId"] == "transfer-square"
+    assert data["tasks"][2]["nextTaskId"] == "branch-crossroad"
     assert all(task["enterable"] for task in data["tasks"])
-    assert all(task["initialProgram"]["root"] is None for task in data["tasks"])
+    assert all(task["initialProgram"]["root"] is None for task in data["tasks"][:3])
+    assert data["tasks"][3]["initialProgram"]["root"]["next"]["kind"] == "control.repeat"
     assert {theme["status"] for theme in data["otherThemes"]} == {"coming_soon"}
 
 
@@ -33,6 +42,46 @@ def test_unknown_course_rejected(client) -> None:
     payload = response.json()
     assert payload["ok"] is False
     assert payload["error"]["code"] == "COURSE_VERSION_UNSUPPORTED"
+
+
+def test_configured_pack_owns_course_identity_and_task_progression(settings, tmp_path) -> None:
+    source = ROOT / "content" / "demo-loop"
+    course = json.loads((source / "course.json").read_text(encoding="utf-8"))
+    main, variant = course["tasks"][:2]
+    course.update(courseId="my-course", tasks=[variant, main], transferTaskId="try-next")
+    main.update(taskId="begin", nextTaskId="try-next")
+    main.pop("variantTaskId")
+    variant.update(taskId="try-next", variantOf="begin", nextTaskId=None)
+    for task in course["tasks"]:
+        task["initialProgram"]["courseRef"].update(courseId="my-course", taskId=task["taskId"])
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "course.json").write_text(json.dumps(course, ensure_ascii=False), encoding="utf-8")
+    (pack / "blocks.used.json").write_bytes((source / "blocks.used.json").read_bytes())
+    (pack / "tutor.replies.json").write_text('{"replies": []}', encoding="utf-8")
+    with TestClient(create_app(replace(settings, course_dir=pack))) as other:
+        report = other.get("/api/v1/startup/check").json()["data"]
+        assert report["courseId"] == "my-course"
+        data = other.get("/api/v1/course").json()["data"]
+        assert other.get("/api/v1/course/my-course").json()["data"] == data
+        assert other.get("/api/v1/course/demo-loop").status_code == 409
+        assert data["entryTaskId"] == "begin"
+        summary = other.get("/api/v1/session/summary").json()["data"]
+        assert summary["nextTaskId"] == "begin"
+        assert summary["transfer"]["title"] == variant["title"]
+
+        attempt = simple_program("begin")
+        attempt["courseRef"]["courseId"] = "my-course"
+        attempt["root"]["next"]["inputs"]["times"] = 4
+        scope = {"contentVersion": data["contentVersion"], "taskId": "begin", "workspaceId": "alt-workspace"}
+        prediction = other.post("/api/v1/session/prediction", json={
+            "taskId": "begin", "value": 4, "learningContext": {"scope": scope, "program": attempt},
+        })
+        assert prediction.status_code == 200 and prediction.json()["data"].get("predictionId")
+        assert submit(other, attempt, "alt-course-run").status_code == 200
+        _, result = drain(other, "alt-course-run")
+        assert result["success"] is True
+        assert other.get("/api/v1/session/summary").json()["data"]["nextTaskId"] == "try-next"
 
 
 def test_run_blocked_without_prediction(client) -> None:

@@ -1,5 +1,6 @@
 @echo off
 setlocal
+chcp 65001 >nul
 pushd "%~dp0.."
 set "SIS_ENV=%CD%\logs\sis.env.local"
 

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小小编程课堂 · 界面效果图</title>
+<style>
+  :root {
+    --sand: #F3E9D2;
+    --paper: #FBF7EC;
+    --line: #E3D6B9;
+    --line-strong: #CDBB94;
+    --sea: #1F6F8B;
+    --sea-soft: #DCEBEF;
+    --turtle: #4E9A5B;
+    --turtle-dark: #2F6B3C;
+    --coral: #E9724C;
+    --coral-soft: #FBE3D9;
+    --ink: #1D2B3A;
+    --ink-soft: #5B6878;
+
+    --b-event: #2F8273;
+    --b-loop: #D07F27;
+    --b-motion: #4A6FC4;
+    --b-branch: #7A5AA8;
+
+    --r-panel: 18px;
+    --r-control: 12px;
+    --r-pill: 999px;
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--sand); min-width: 1024px; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+  :focus-visible { outline: 3px solid var(--sea); outline-offset: 2px; }
+
+  /* 顶栏 */
+  .top {
+    display: flex; align-items: center; gap: 24px;
+    height: 60px; padding: 0 20px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; }
+  .brand svg { width: 38px; height: 30px; }
+  .tasks { display: flex; gap: 4px; padding: 4px; background: var(--paper); border-radius: var(--r-pill); border: 1px solid var(--line); }
+  .tasks button { padding: 6px 16px; border-radius: var(--r-pill); color: var(--ink-soft); }
+  .tasks button[aria-current="step"] { background: var(--sea); color: #fff; font-weight: 600; }
+  .tasks .done::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--turtle); vertical-align: 1px; }
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .chip-btn { display: flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--r-control); background: var(--paper); border: 1px solid var(--line); }
+  .chip-btn .caret { font-size: 10px; color: var(--ink-soft); }
+  .saved { font-size: 13px; color: var(--turtle-dark); margin-right: 4px; }
+  .icon-btn { width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--r-control); background: var(--paper); border: 1px solid var(--line); }
+
+  /* 主区 */
+  main {
+    display: grid; grid-template-columns: 236px minmax(0, 1fr) 356px; gap: 14px;
+    padding: 0 20px 20px; height: calc(100vh - 60px); min-height: 700px;
+  }
+  .panel { background: var(--paper); border-radius: var(--r-panel); border: 1px solid var(--line); }
+
+  /* 左：任务 */
+  .task { padding: 20px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .task-kind { font-size: 13px; color: var(--sea); font-weight: 600; }
+  .task h1 { margin: 0; font-size: 26px; line-height: 1.25; letter-spacing: 0.5px; }
+  .goal { display: flex; align-items: baseline; gap: 6px; padding: 14px 16px; background: #fff; border-radius: 14px; border: 1px solid var(--line); }
+  .goal .num { font-size: 48px; font-weight: 800; color: var(--sea); line-height: 1; }
+  .goal .unit { font-size: 18px; font-weight: 600; }
+  .goal .lbl { margin-right: auto; color: var(--ink-soft); }
+  .task p { margin: 0; color: var(--ink-soft); }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
+  .check i { flex: none; width: 18px; height: 18px; margin-top: 2px; border-radius: 5px; border: 2px solid var(--line-strong); }
+  .read { align-self: flex-start; display: flex; gap: 6px; align-items: center; color: var(--sea); font-size: 14px; padding: 0; }
+  .task .foot { margin-top: auto; font-size: 14px; color: var(--sea); }
+
+  /* 中：工具箱 + 画布 */
+  .work { display: grid; grid-template-columns: 64px 196px minmax(0, 1fr); overflow: hidden; }
+  .rail { display: flex; flex-direction: column; gap: 6px; padding: 16px 0; align-items: center; border-right: 1px solid var(--line); }
+  .rail button { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-soft); padding: 6px 4px; border-radius: 10px; width: 54px; }
+  .rail button span { width: 22px; height: 22px; border-radius: 50%; }
+  .rail button[aria-pressed="true"] { background: #fff; color: var(--ink); font-weight: 600; }
+  .palette { padding: 16px 12px; display: flex; flex-direction: column; gap: 14px; border-right: 1px solid var(--line); overflow: auto; }
+  .palette .hint { font-size: 13px; color: var(--ink-soft); margin: 0; }
+
+  /* 积木 */
+  .blk {
+    position: relative; display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 12px; min-height: 40px; color: #fff; font-weight: 700; font-size: 15px;
+    border-radius: 6px; box-shadow: inset 0 -3px 0 rgba(0,0,0,.18);
+    white-space: nowrap;
+  }
+  .blk::after { /* 下方凸起 */
+    content: ""; position: absolute; left: 16px; bottom: -7px; width: 22px; height: 8px;
+    background: inherit; border-radius: 0 0 6px 6px;
+  }
+  .blk.hat { border-radius: 18px 18px 6px 6px; padding-top: 12px; }
+  .ev { background: var(--b-event); } .lp { background: var(--b-loop); }
+  .mv { background: var(--b-motion); } .br { background: var(--b-branch); }
+  .slot { display: inline-block; min-width: 30px; padding: 1px 8px; text-align: center; background: #fff; color: var(--ink); border-radius: var(--r-pill); font-weight: 700; }
+  .c-blk { display: inline-flex; flex-direction: column; align-self: flex-start; border-radius: 6px; }
+  .c-blk .c-top { border-radius: 6px 6px 0 0; }
+  .c-blk .c-top::after { left: 34px; }
+  .c-body { display: flex; }
+  .c-arm { width: 18px; }
+  .c-inner { padding: 6px 0 10px 0; min-height: 30px; }
+  .c-bot { height: 18px; border-radius: 0 0 6px 6px; position: relative; box-shadow: inset 0 -3px 0 rgba(0,0,0,.18); }
+  .c-empty { width: 92px; height: 26px; margin: 2px 0; border: 2px dashed rgba(255,255,255,.75); border-radius: 6px; background: rgba(255,255,255,.18); }
+
+  .canvas-wrap { display: flex; flex-direction: column; min-width: 0; }
+  .canvas-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .canvas-bar h2 { margin: 0 auto 0 0; font-size: 16px; }
+  .ghost-btn { padding: 6px 12px; border-radius: var(--r-control); color: var(--ink-soft); }
+  .ghost-btn:hover { background: #fff; }
+  .canvas {
+    flex: 1; position: relative; overflow: hidden;
+    background-color: #fffdf7;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 24px 24px;
+    border-radius: 0 0 var(--r-panel) 0;
+  }
+  .stack { position: absolute; left: 56px; top: 56px; display: flex; flex-direction: column; gap: 0; }
+  .stack > * + * { margin-top: -1px; }
+  .slot.flagged { box-shadow: 0 0 0 3px var(--coral), 0 0 0 7px var(--coral-soft); }
+  .pin-tag {
+    position: absolute; left: calc(100% + 14px); top: 50%; transform: translateY(-50%);
+    background: var(--coral); color: #fff; font-size: 13px; font-weight: 600;
+    padding: 4px 10px; border-radius: var(--r-pill); white-space: nowrap;
+  }
+  .pin-tag::before { content: ""; position: absolute; left: -6px; top: 50%; margin-top: -6px; border: 6px solid transparent; border-left: 0; border-right-color: var(--coral); }
+  .code-peek { position: absolute; right: 16px; bottom: 16px; font-size: 13px; color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-control); padding: 6px 12px; }
+
+  /* 右：舞台 + 运行 + 老师 */
+  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .stage-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .stage-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .stage-head h2 { margin: 0; font-size: 16px; }
+  .counter { font-size: 14px; color: var(--ink-soft); }
+  .counter b { font-size: 22px; color: var(--ink); }
+  .stage {
+    position: relative; height: 150px; border-radius: 14px; overflow: hidden;
+    background: linear-gradient(#cfe7ec 0 34%, #f6ebcf 34% 100%);
+  }
+  .track {
+    position: absolute; left: 20px; right: 20px; bottom: 30px; height: 64px;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+  }
+  .cell { border-left: 2px dashed var(--line-strong); position: relative; }
+  .cell:last-child { border-right: 0; }
+  .cell b { position: absolute; left: -6px; bottom: -24px; font-size: 13px; color: var(--ink-soft); }
+  .cell.trail::after { content: ""; position: absolute; left: 50%; top: 56%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--turtle); opacity: .45; }
+  .flag { position: absolute; bottom: 30px; right: calc(20px + 20% - 2px); width: 3px; height: 70px; background: var(--ink); }
+  .flag::after { content: ""; position: absolute; left: 3px; top: 0; width: 26px; height: 18px; background: var(--coral); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .wave { position: absolute; top: 18px; left: 0; right: 0; height: 12px; opacity: .55;
+    background: radial-gradient(circle at 10px -4px, transparent 9px, #ffffff 10px, transparent 11px) 0 0/20px 12px repeat-x; }
+  .turtle {
+    position: absolute; bottom: 34px; width: 62px; height: 46px;
+    left: calc(20px + (100% - 40px) * 0.6 - 31px);
+    animation: walk 1.8s steps(3, end) .4s both;
+  }
+  @keyframes walk { from { left: calc(20px - 31px); } to { left: calc(20px + (100% - 40px) * 0.6 - 31px); } }
+  @media (prefers-reduced-motion: reduce) { .turtle { animation: none; } }
+
+  .result { display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: var(--coral-soft); border-radius: 12px; font-size: 14px; }
+  .result strong { color: #A8431F; }
+
+  .try { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .predict { display: flex; align-items: center; gap: 8px; font-size: 15px; padding-top: 10px; }
+  .predict output { display: inline-grid; place-items: center; width: 44px; height: 36px; border-radius: 10px; background: #fff; border: 2px solid var(--sea); font-weight: 700; font-size: 18px; }
+  .predict .ok { font-size: 13px; color: var(--turtle-dark); margin-left: auto; }
+  .run-row { display: flex; gap: 8px; }
+  .run {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px;
+    height: 54px; border-radius: 14px; background: var(--turtle); color: #fff;
+    font-size: 19px; font-weight: 700; box-shadow: inset 0 -4px 0 var(--turtle-dark);
+  }
+  .run:hover { filter: brightness(1.05); }
+  .run:active { box-shadow: inset 0 -1px 0 var(--turtle-dark); transform: translateY(2px); }
+  .run svg { width: 18px; height: 18px; }
+  .sec { padding: 0 14px; height: 54px; border-radius: 14px; background: #fff; border: 1px solid var(--line); color: var(--ink-soft); font-size: 14px; }
+
+  .tutor { flex: 1; min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { display: flex; gap: 10px; align-items: flex-start; }
+  .avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--sea-soft); display: grid; place-items: center; }
+  .avatar svg { width: 34px; height: 26px; }
+  .bubble { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 4px 16px 16px 16px; padding: 10px 14px; }
+  .bubble .who { display: block; font-size: 13px; color: var(--sea); font-weight: 600; margin-bottom: 2px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 54px; }
+  .quick button { padding: 6px 12px; border-radius: var(--r-pill); background: var(--sea-soft); color: var(--sea); font-size: 14px; }
+  .ask { margin-top: auto; display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 14px; background: #fff; border: 1px solid var(--line-strong); border-radius: 16px; }
+  .ask span { flex: 1; color: #9AA3AE; font-size: 14px; }
+  .ask .mic { width: 38px; height: 38px; border-radius: 50%; background: var(--sea-soft); display: grid; place-items: center; }
+  .ask .send { padding: 8px 16px; border-radius: 12px; background: var(--sea); color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- 可复用的海龟图形 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="turtle" viewBox="0 0 64 48">
+    <ellipse cx="18" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+    <ellipse cx="42" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+    <ellipse cx="18" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+    <ellipse cx="42" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+    <path d="M6 24 L1 21 L1 27 Z" fill="#86BE79"/>
+    <circle cx="55" cy="24" r="7.5" fill="#86BE79"/>
+    <circle cx="57.5" cy="21" r="1.8" fill="#1D2B3A"/>
+    <ellipse cx="30" cy="24" rx="21" ry="16.5" fill="#4E9A5B" stroke="#2F6B3C" stroke-width="2.5"/>
+    <polygon points="30,15 38,19.5 38,28.5 30,33 22,28.5 22,19.5" fill="#6DB37A" stroke="#2F6B3C" stroke-width="1.6"/>
+    <path d="M30 15 L30 8.5 M38 19.5 L46 15 M38 28.5 L46 33 M30 33 L30 39.5 M22 28.5 L14 33 M22 19.5 L14 15" stroke="#2F6B3C" stroke-width="1.6"/>
+  </symbol>
+</svg>
+
+<header class="top">
+  <div class="brand"><svg><use href="#turtle"/></svg>小小编程课堂</div>
+  <nav class="tasks" aria-label="本课任务">
+    <button aria-current="step">走四步</button>
+    <button>走六步</button>
+    <button>画正方形</button>
+  </nav>
+  <div class="top-right">
+    <span class="saved">已自动保存</span>
+    <button class="chip-btn">临时练习 <span class="caret">▼</span></button>
+    <button class="chip-btn">作品 <span class="caret">▼</span></button>
+    <button class="icon-btn" aria-label="系统信息">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5B6878" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- 左：任务 -->
+  <section class="panel task" aria-label="当前任务">
+    <span class="task-kind">主任务</span>
+    <h1>让海龟走到旗子那里</h1>
+    <div class="goal"><span class="lbl">目标</span><span class="num">4</span><span class="unit">步</span></div>
+    <p>把「向前走」放进「重复」里，想一想要重复几次。</p>
+    <div class="check"><i aria-hidden="true"></i><span>海龟一共向前走了 4 步</span></div>
+    <button class="read">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+      读给我听
+    </button>
+    <span class="foot">这节课学什么？</span>
+  </section>
+
+  <!-- 中：工具箱 + 画布 -->
+  <section class="panel work" aria-label="编程区">
+    <nav class="rail" aria-label="积木分类">
+      <button aria-pressed="true"><span style="background:conic-gradient(var(--b-event) 0 25%, var(--b-motion) 0 50%, var(--b-loop) 0 75%, var(--b-branch) 0)"></span>全部</button>
+      <button aria-pressed="false"><span style="background:var(--b-event)"></span>开始</button>
+      <button aria-pressed="false"><span style="background:var(--b-motion)"></span>动作</button>
+      <button aria-pressed="false"><span style="background:var(--b-loop)"></span>循环</button>
+      <button aria-pressed="false"><span style="background:var(--b-branch)"></span>分支</button>
+    </nav>
+
+    <div class="palette">
+      <p class="hint">点一下或拖到右边</p>
+      <div><span class="blk hat ev">当开始</span></div>
+      <div class="c-blk">
+        <span class="blk lp c-top">重复 <span class="slot">4</span> 次</span>
+        <div class="c-body"><div class="c-arm lp"></div><div class="c-inner"><div class="c-empty"></div></div></div>
+        <div class="c-bot lp"></div>
+      </div>
+      <div><span class="blk mv">向前走 <span class="slot">1</span> 步</span></div>
+      <div><span class="blk mv">转弯 <span class="slot">90</span> 度</span></div>
+      <div class="c-blk">
+        <span class="blk br c-top">如果 已走 <span class="slot">≥ 1</span> 步</span>
+        <div class="c-body"><div class="c-arm br"></div><div class="c-inner"><div class="c-empty"></div></div></div>
+        <div class="c-bot br"></div>
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <div class="canvas-bar">
+        <h2>我的程序</h2>
+        <button class="ghost-btn">撤销</button>
+        <button class="ghost-btn">重做</button>
+        <button class="ghost-btn">清空</button>
+      </div>
+      <div class="canvas" aria-label="积木画布">
+        <div class="stack">
+          <span class="blk hat ev" style="align-self:flex-start">当开始</span>
+          <div class="c-blk">
+            <span class="blk lp c-top">重复 <span class="slot flagged">3</span> 次<span class="pin-tag">看看这里的数字</span></span>
+            <div class="c-body">
+              <div class="c-arm lp"></div>
+              <div class="c-inner"><span class="blk mv">向前走 <span class="slot">1</span> 步</span></div>
+            </div>
+            <div class="c-bot lp"></div>
+          </div>
+        </div>
+        <button class="code-peek">看看 Python 代码</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 右：舞台、运行、AI 老师 -->
+  <aside class="side">
+    <section class="panel stage-card" aria-label="舞台">
+      <div class="stage-head">
+        <h2>舞台</h2>
+        <span class="counter">走了 <b>3</b> 步</span>
+      </div>
+      <div class="stage">
+        <div class="wave"></div>
+        <div class="track">
+          <div class="cell trail"><b>0</b></div>
+          <div class="cell trail"><b>1</b></div>
+          <div class="cell trail"><b>2</b></div>
+          <div class="cell"><b>3</b></div>
+          <div class="cell"><b>4</b></div>
+        </div>
+        <div class="flag" aria-label="终点：第 4 步"></div>
+        <svg class="turtle" aria-label="海龟"><use href="#turtle"/></svg>
+      </div>
+      <div class="result">
+        <span>走了 3 步，目标 4 步，<strong>还差 1 步</strong></span>
+      </div>
+
+      <div class="try">
+        <div class="predict">我猜会走 <output>3</output> 步 <span class="ok">猜对了</span></div>
+        <div class="run-row">
+          <button class="run"><svg viewBox="0 0 24 24" fill="#fff"><path d="M6 4l14 8-14 8z"/></svg>再运行一次</button>
+          <button class="sec">一步一步看</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel tutor" aria-label="AI 小老师">
+      <div class="msg">
+        <div class="avatar"><svg><use href="#turtle"/></svg></div>
+        <div class="bubble">
+          <span class="who">海龟老师</span>
+          你猜的 3 步和海龟走的一样，猜得真准！可旗子在第 4 格。重复积木里的数字，要改成几？
+        </div>
+      </div>
+      <div class="quick">
+        <button>再给一点提示</button>
+        <button>换个例子</button>
+        <button>我自己试试</button>
+      </div>
+      <div class="ask">
+        <span>想问点什么？</span>
+        <button class="mic" aria-label="按住说话">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F6F8B" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button class="send">发送</button>
+      </div>
+    </section>
+  </aside>
+</main>
+
+</body>
+</html>

@@ -34,7 +34,7 @@ def build_model_request(context: dict[str, Any], decision: Any) -> dict[str, Any
         "mode": "model",
         "locale": "zh-CN",
         "taskContext": {
-            "courseId": "demo-loop",
+            "courseId": context.get("course_id", "demo-loop"),
             "taskId": context.get("task_id", "main"),
             "objective": str(context.get("objective", ""))[:120],
         },

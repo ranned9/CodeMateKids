@@ -229,9 +229,9 @@ function fieldValueText(node, field) {
 export function drawScene(ctx, layout, view) {
   const { width, height } = view;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#fdfefe";
+  ctx.fillStyle = "#fffdf7";
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = "#eef2f8";
+  ctx.strokeStyle = "#efe5cf";
   ctx.lineWidth = 1;
   for (let x = 0; x < width; x += 26) {
     ctx.beginPath();
@@ -350,7 +350,7 @@ function drawBlockLayer(ctx, node, section, view) {
 function drawField(ctx, node, field, view) {
   if (field.inHeader) {
     if (!field.nestedValue && !view.fieldControls?.has(field)) {
-      const choice = field.valueType === "choice";
+      const choice = field.valueType === "choice" || Boolean(field.suggestions?.length);
       const value = choice ? fieldChoiceText(field, node.inputs?.[field.name]) : fieldValueText(node, field);
       drawValuePill(ctx, field.rect, value, choice);
     }

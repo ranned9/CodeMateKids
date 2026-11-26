@@ -177,6 +177,7 @@ def _course_check(settings: Settings) -> dict[str, Any]:
                 "detailForDeveloperLogOnly": str(detail),
             },
             "course_version": 0,
+            "course_id": "",
             "content_version": "",
             "blocked_task_ids": [],
         }
@@ -195,6 +196,7 @@ def _course_check(settings: Settings) -> dict[str, Any]:
                 ),
             },
             "course_version": int(bundle.course["version"]),
+            "course_id": bundle.course["courseId"],
             "content_version": bundle.content_version,
             "blocked_task_ids": blocked,
         }
@@ -212,6 +214,7 @@ def _course_check(settings: Settings) -> dict[str, Any]:
                 "detailForDeveloperLogOnly": "; ".join(parts),
             },
             "course_version": int(bundle.course["version"]),
+            "course_id": bundle.course["courseId"],
             "content_version": bundle.content_version,
             "blocked_task_ids": blocked,
         }
@@ -223,6 +226,7 @@ def _course_check(settings: Settings) -> dict[str, Any]:
             "detailForDeveloperLogOnly": f"contentVersion={bundle.content_version}",
         },
         "course_version": int(bundle.course["version"]),
+        "course_id": bundle.course["courseId"],
         "content_version": bundle.content_version,
         "blocked_task_ids": [],
     }
@@ -282,6 +286,7 @@ def check_startup(settings: Settings, refresh: bool = False) -> dict[str, Any]:
         "checks": checks,
         "python": python_info,
         "courseVersion": course_info["course_version"],
+        "courseId": course_info["course_id"],
         "schemaVersion": schema_version,
         "tutorMode": settings.tutor_mode,
         "elapsedMs": elapsed_ms,

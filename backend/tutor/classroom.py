@@ -268,6 +268,9 @@ def _teaching_reply(message: str, context: dict) -> Reply:
     if re.fullmatch(r"(它|这|这个|这里|那个|为什么|怎么了|不对)[？?。\s]*", message) and selected is None:
         return _ask("你是想问哪块积木，还是刚才运行时海龟做了什么？")
 
+    if context.get("hint_ladder") and pattern in ("not_run", "unknown"):
+        return _contextual_hint(context, prior_question)
+
     memory = context["memory"]
     direct = bool(re.search(r"直接讲|讲一下|解释|没懂|不懂", message))
     if memory == "check_counts" and pattern in ("not_run", "prediction_mismatch", "unknown"):
@@ -299,6 +302,17 @@ def _teaching_reply(message: str, context: dict) -> Reply:
 
 
 def _contextual_hint(context: dict, previous_text: str) -> Reply:
+    ladder = context.get("hint_ladder", [])
+    if ladder:
+        level = context["highest_hint"] + 1
+        hint = next((hint for hint in reversed(ladder) if hint["level"] <= level), ladder[0])
+        action = hint["action"]
+        if action == "show_execution" and action in context["actions"]:
+            return Reply(hint["promptText"], action, "verifiedReplay")
+        if action not in ("explain", "hint", "analogy", "break_down", "partial_example"):
+            action = "hint"
+        return Reply(hint["promptText"], action)
+
     candidates = []
     selected = _BLOCK_EXPLANATIONS.get(context["selected_kind"])
     if selected:

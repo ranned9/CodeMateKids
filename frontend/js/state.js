@@ -7,7 +7,7 @@ export const state = {
   startup: null,
   course: null,
   tasks: new Map(),
-  activeTaskId: "main",
+  activeTaskId: null,
   root: null,
   dirty: false,
   programRevision: 0,

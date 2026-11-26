@@ -10,24 +10,29 @@ export function createCourseWorkflow({
 }) {
   function hasPendingCourse() {
     const version = state.startup?.contentVersion;
-    return !state.course || Boolean(version && version !== state.contentVersion);
+    const id = state.startup?.courseId;
+    return !state.course || Boolean(version && version !== state.contentVersion)
+      || Boolean(id && id !== state.course.course?.courseId);
   }
 
   function installCourse(course) {
     const tasks = new Map(course.tasks.map((task) => [task.taskId, task]));
-    const current = tasks.get(state.activeTaskId);
-    const target = current?.enterable ? current : course.tasks.find((task) => task.enterable);
+    const courseChanged = Boolean(state.course && state.course.course?.courseId !== course.course?.courseId);
+    const current = courseChanged ? null : tasks.get(state.activeTaskId);
+    const main = tasks.get(course.entryTaskId) || course.tasks.find((task) => task.type === "main");
+    const target = [current, main, ...course.tasks].find((task) => task?.enterable);
     state.course = course;
     state.tasks = tasks;
-    if (state.contentVersion !== course.contentVersion) {
+    if (courseChanged || state.contentVersion !== course.contentVersion) {
       state.prediction?.clear();
       state.predictionContext?.clear();
+      state.predictionPending?.clear();
       state.skippedTaskIds?.clear();
       state.lessonObservation = "";
+      state.mainCompletedHint = false;
     }
     state.contentVersion = course.contentVersion || null;
-    const main = course.tasks.find((task) => task.type === "main");
-    state.variantAvailable = Boolean(tasks.get(main?.variantTaskId || "variant")?.enterable);
+    state.variantAvailable = Boolean(tasks.get(main?.nextTaskId ?? main?.variantTaskId)?.enterable);
     if (target) {
       applyTask(target.taskId);
     } else {

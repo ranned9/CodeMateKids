@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any
 
 from backend.domain.program import move_step_count, number_input_value as _number
+from backend.runner.runtime_api import turn_heading
 
 MOVE_KIND = "motion.move"
 TURN_KIND = "motion.turn"
@@ -21,7 +23,7 @@ class SquareReport:
     outside_moves: int = 0
     repeat_times: int | None = None
     steps_per_move: int | None = None
-    turn_degrees: int | None = None
+    turn_degrees: int | float | None = None
     loop_id: str | None = None
     move_id: str | None = None
     outside_move_id: str | None = None
@@ -97,7 +99,8 @@ def inspect(root: dict[str, Any] | list[dict[str, Any]] | None, suggested_steps_
         report.move_id = moves[0].get("blockId")
     if len(turns) == 1:
         degrees = _number((turns[0].get("inputs") or {}).get("degrees"))
-        report.turn_degrees = int(degrees) if isinstance(degrees, (int, float)) else None
+        if type(degrees) is int or (type(degrees) is float and isfinite(degrees)):
+            report.turn_degrees = turn_heading(0, degrees)
 
     motion = [item.get("kind") for item in body if item.get("kind") not in HARMLESS_KINDS]
     report.simple_move_loop = report.single_repeat and outside_moves == 0 and motion == [MOVE_KIND]

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拾阶 · 海龟老师区效果图</title>
+<style>
+  :root {
+    --sand: #F3E9D2; --panel: #FBF7EC; --surface: #FFFDF7;
+    --line: #E3D6B9; --line-strong: #CDBB94;
+    --sea: #1F6F8B; --sea-dark: #185D75; --sea-soft: #DCEBEF;
+    --turtle: #4E9A5B; --turtle-dark: #2F6B3C; --ok: #2F7A3F;
+    --coral: #E9724C; --ink: #1D2B3A; --ink-soft: #5B6878;
+    --b-event: #2f7f78; --b-loop: #c4782b; --b-motion: #496dbe; --b-branch: #7257a8;
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+    color: var(--ink); font-size: 15px; line-height: 1.5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--sand); min-width: 1200px; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+  :focus-visible { outline: 3px solid var(--sea); outline-offset: 2px; }
+
+  .top { display: flex; align-items: center; gap: 20px; height: 60px; padding: 0 20px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 800; letter-spacing: 4px; }
+  .brand svg { width: 40px; height: 30px; }
+  .brand small { font-size: 14px; font-weight: 400; letter-spacing: 0; color: var(--ink-soft); padding-left: 10px; border-left: 1px solid var(--line-strong); }
+  .tabs { display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+  .tabs button { padding: 5px 16px; border-radius: 999px; color: var(--ink-soft); }
+  .tabs button[aria-current] { background: var(--sea); color: #fff; font-weight: 700; }
+  .right { margin-left: auto; display: flex; gap: 8px; }
+  .chip { padding: 7px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+
+  main { display: grid; grid-template-columns: 246px minmax(0, 1fr) 380px; gap: 12px; padding: 12px 20px 20px; height: calc(100vh - 60px); min-height: 760px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+
+  /* 左栏与中栏：与当前版本一致，只做背景参照 */
+  .task { padding: 20px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .task .kind { color: var(--sea); font-size: 14px; font-weight: 700; }
+  .task h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+  .goal { display: flex; align-items: baseline; gap: 6px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+  .goal span:first-child { margin-right: auto; color: var(--ink-soft); font-size: 14px; }
+  .goal b { font-size: 48px; line-height: 1; color: var(--sea); }
+  .task p { margin: 0; color: var(--ink-soft); }
+  .work { display: grid; grid-template-columns: 252px 1fr; overflow: hidden; }
+  .toolbox { border-right: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .canvas { background-color: #fffdf7; background-image: linear-gradient(#efe5cf 1px, transparent 1px), linear-gradient(90deg, #efe5cf 1px, transparent 1px); background-size: 26px 26px; position: relative; }
+  .canvas-bar { padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 700; background: var(--panel); }
+  .blk { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 40px; color: #fff; font-weight: 700; border-radius: 6px; box-shadow: inset 0 -3px 0 rgba(0,0,0,.18); white-space: nowrap; }
+  .hat { border-radius: 18px 18px 6px 6px; padding-top: 12px; }
+  .ev { background: var(--b-event); } .lp { background: var(--b-loop); } .mv { background: var(--b-motion); } .br { background: var(--b-branch); }
+  .slot { display: inline-block; min-width: 30px; padding: 1px 8px; text-align: center; background: #fff; color: var(--ink); border-radius: 999px; }
+  .stack { position: absolute; left: 36px; top: 80px; display: flex; flex-direction: column; }
+  .loop { display: flex; flex-direction: column; align-items: flex-start; }
+  .loop .arm { display: flex; } .loop .arm i { width: 18px; background: var(--b-loop); } .loop .arm div { padding: 4px 0 6px; }
+  .loop .foot { width: 150px; height: 18px; background: var(--b-loop); border-radius: 0 0 6px 6px; }
+
+  /* ===== 右栏：这次要看的部分 ===== */
+  .side { position: relative; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
+  /* 1. 舞台、结果、预测、运行合成一张卡 */
+  .play { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .play-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .play-head h2 { margin: 0; font-size: 15px; }
+  .play-head span { font-size: 13px; color: var(--ink-soft); }
+  .stage { position: relative; height: 96px; border-radius: 14px; overflow: hidden; background: linear-gradient(#cfe7ec 0 24px, #f6ebcf 24px 100%); }
+  .tick { position: absolute; bottom: 4px; font-size: 12px; font-weight: 600; color: var(--ink-soft); transform: translateX(-50%); }
+  .tick::before { content: ""; position: absolute; left: 50%; bottom: 20px; height: 34px; border-left: 2px dashed var(--line-strong); }
+  .flag { position: absolute; top: 30px; bottom: 24px; width: 3px; background: var(--ink); }
+  .flag::before { content: ""; position: absolute; left: 3px; top: 0; width: 24px; height: 16px; background: var(--coral); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .turtle { position: absolute; bottom: 26px; width: 44px; height: 34px; transform: translateX(-50%); }
+
+  /* 结果并进舞台卡：一行结论 + 下一步 */
+  .verdict { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; border-radius: 12px; background: #E3F1E1; }
+  .verdict b { color: var(--ok); font-size: 16px; white-space: nowrap; }
+  .verdict span { font-size: 13px; color: var(--ink-soft); margin-right: auto; }
+  .verdict button { padding: 4px 10px; border-radius: 10px; background: var(--surface); border: 1px solid #BFDDBF; font-size: 13px; white-space: nowrap; }
+
+  /* 2. 预测压成一行，运行区保持醒目 */
+  .predict { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .predict output { display: inline-grid; place-items: center; width: 44px; height: 34px; border: 2px solid var(--sea); border-radius: 10px; background: #fff; font-size: 17px; font-weight: 700; }
+  .predict .again { margin-left: auto; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+  .run-row { display: flex; gap: 8px; }
+  .run { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; height: 50px; border-radius: 14px; background: var(--turtle); color: #fff; font-size: 18px; font-weight: 800; box-shadow: inset 0 -4px 0 var(--turtle-dark); }
+  .run::before { content: ""; border-style: solid; border-width: 8px 0 8px 13px; border-color: transparent transparent transparent #fff; }
+  .sec { height: 50px; padding: 0 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; color: var(--ink-soft); }
+  .more { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft); }
+
+  /* 3. 海龟老师：占满剩余高度，可展开盖住上方 */
+  .tutor { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px; gap: 10px; background: var(--panel); transition: top .22s ease; }
+  .tutor-head { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--sea-soft); display: grid; place-items: center; flex: none; }
+  .avatar svg { width: 30px; height: 23px; }
+  .tutor-head h2 { margin: 0 auto 0 0; font-size: 16px; }
+  .expand { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; color: var(--ink-soft); }
+  .expand svg { width: 14px; height: 14px; }
+  .log { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+  .me, .ai { max-width: 88%; padding: 8px 12px; border-radius: 16px; white-space: pre-wrap; }
+  .me { align-self: flex-end; background: var(--sea); color: #fff; border-radius: 16px 4px 16px 16px; }
+  .ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 4px 16px 16px 16px; }
+  .ai-tools { display: flex; gap: 6px; margin-top: 6px; }
+  .ai-tools button { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 13px; background: #fff; }
+  .quick { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
+  .quick button { flex: none; padding: 4px 12px; border-radius: 999px; background: var(--sea-soft); color: var(--sea); font-size: 14px; font-weight: 600; }
+  .ask { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; background: #fff; border: 1px solid var(--line-strong); border-radius: 16px; }
+  .ask > span:first-child { flex: 1; color: #9AA3AE; font-size: 14px; }
+  .mic { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--sea-soft); display: grid; place-items: center; }
+  .send { padding: 7px 16px; border-radius: 12px; background: var(--sea); color: #fff; font-weight: 700; }
+
+  /* 展开状态：老师面板盖住舞台卡，收起后舞台原样回来 */
+  .side.expanded .tutor { position: absolute; inset: 0; z-index: 2; box-shadow: 0 12px 30px rgba(80,60,20,.16); }
+  .side.expanded .expand svg { transform: rotate(180deg); }
+  .mini-stage { display: none; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 12px; background: #E3F1E1; font-size: 13px; }
+  .mini-stage svg { width: 28px; height: 21px; }
+  .side.expanded .mini-stage { display: flex; }
+  @media (prefers-reduced-motion: reduce) { .tutor { transition: none; } }
+
+  /* 说明标注，只在效果图里出现 */
+  .note { position: absolute; z-index: 5; background: var(--ink); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 8px; white-space: nowrap; pointer-events: none; }
+  .note::after { content: ""; position: absolute; right: -6px; top: 50%; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left-color: var(--ink); }
+  .side.expanded ~ .notes .note { display: none; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="turtle" viewBox="0 0 64 48">
+    <ellipse cx="18" cy="9" rx="6" ry="4.5" fill="#86BE79"/><ellipse cx="42" cy="9" rx="6" ry="4.5" fill="#86BE79"/>
+    <ellipse cx="18" cy="39" rx="6" ry="4.5" fill="#86BE79"/><ellipse cx="42" cy="39" rx="6" ry="4.5" fill="#86BE79"/>
+    <path d="M6 24 L1 21 L1 27 Z" fill="#86BE79"/><circle cx="55" cy="24" r="7.5" fill="#86BE79"/><circle cx="57.5" cy="21" r="1.8" fill="#1D2B3A"/>
+    <ellipse cx="30" cy="24" rx="21" ry="16.5" fill="#4E9A5B" stroke="#2F6B3C" stroke-width="2.5"/>
+    <polygon points="30,15 38,19.5 38,28.5 30,33 22,28.5 22,19.5" fill="#6DB37A" stroke="#2F6B3C" stroke-width="1.6"/>
+    <path d="M30 15 L30 8.5 M38 19.5 L46 15 M38 28.5 L46 33 M30 33 L30 39.5 M22 28.5 L14 33 M22 19.5 L14 15" stroke="#2F6B3C" stroke-width="1.6"/>
+  </symbol>
+</svg>
+
+<header class="top">
+  <div class="brand"><svg><use href="#turtle"/></svg>拾阶<small>一步一步学编程</small></div>
+  <nav class="tabs"><button aria-current="step">走四步</button><button>走六步</button><button>画正方形</button></nav>
+  <div class="right"><span class="chip">学习总结</span><span class="chip">作品 ▾</span></div>
+</header>
+
+<main>
+  <section class="panel task">
+    <span class="kind">主任务</span>
+    <h1>让角色走四步</h1>
+    <div class="goal"><span>目标</span><b>4</b><span>步</span></div>
+    <p>让角色累计走 4 步。试着把前进积木放在重复里，再运行看看。</p>
+  </section>
+
+  <section class="panel work">
+    <div class="toolbox">
+      <span class="blk hat ev" style="align-self:flex-start">当开始</span>
+      <span class="blk lp" style="align-self:flex-start">重复 <span class="slot">4</span> 次</span>
+      <span class="blk mv" style="align-self:flex-start">向前走</span>
+      <span class="blk br" style="align-self:flex-start">如果 已走 <span class="slot">≥ 1</span> 步</span>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div class="canvas-bar">积木画布</div>
+      <div class="canvas" style="flex:1">
+        <div class="stack">
+          <span class="blk hat ev" style="align-self:flex-start">当开始</span>
+          <div class="loop">
+            <span class="blk lp">重复 <span class="slot">4</span> 次</span>
+            <div class="arm"><i></i><div><span class="blk mv">向前走</span></div></div>
+            <div class="foot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side" id="side">
+    <section class="panel play" aria-label="舞台和运行">
+      <div class="play-head"><h2>舞台</h2><span>动了 4 次，累计 4 步</span></div>
+      <div class="stage">
+        <span class="tick" style="left:8%">0</span><span class="tick" style="left:28%">1</span>
+        <span class="tick" style="left:48%">2</span><span class="tick" style="left:68%">3</span>
+        <span class="tick" style="left:88%">4</span>
+        <span class="flag" style="left:88%"></span>
+        <svg class="turtle" style="left:88%"><use href="#turtle"/></svg>
+      </div>
+      <div class="verdict"><b>做到了！</b><span>猜 3 次，走了 4 步</span><button>下一题：走六步</button></div>
+      <div class="predict">我猜会前进 <output>3</output> 次 <button class="again">再猜一次</button></div>
+      <div class="run-row">
+        <button class="run">重新运行</button>
+        <button class="sec">单步调试</button>
+        <button class="sec">停止</button>
+      </div>
+      <div class="more"><span>▸ 运行详情</span><span>重置本题画布</span></div>
+    </section>
+
+    <section class="panel tutor" aria-label="海龟老师">
+      <div class="tutor-head">
+        <span class="avatar"><svg><use href="#turtle"/></svg></span>
+        <h2>海龟老师</h2>
+        <button class="expand" id="expand" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 15l6-6 6 6"/></svg>
+          <span>展开</span>
+        </button>
+      </div>
+      <div class="mini-stage"><svg><use href="#turtle"/></svg>舞台：走了 4 步，做到了</div>
+      <div class="log">
+        <div class="ai">你好，我是海龟老师。搭积木时卡住了，随时问我。</div>
+        <div class="me">给我一点提示</div>
+        <div class="ai">目标里要往前走几步？先数一数相同动作出现了几次。</div>
+        <div class="me">为什么我猜 3 次，它走了 4 步？</div>
+        <div class="ai">看看重复积木里的数字，它说要重复几次？每重复一次，海龟就向前走一步。<div class="ai-tools"><button>看看这块积木</button><button>回放一遍</button></div></div>
+        <div class="me">哦，是 4 次！</div>
+        <div class="ai">对啦。下次先数一数重复里的数字，再来猜。要不要试试走六步？</div>
+      </div>
+      <div class="quick">
+        <button>给我一点提示</button><button>换个例子</button><button>下一步做什么？</button>
+      </div>
+      <div class="ask">
+        <span>想问点什么？</span>
+        <span class="mic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F6F8B" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+        <button class="send">发送</button>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div class="notes" aria-hidden="true">
+  <span class="note" style="right:410px; top:288px">① 结果并进舞台卡，去掉单独的结果卡</span>
+  <span class="note" style="right:410px; top:338px">② 预测压成一行</span>
+  <span class="note" style="right:410px; top:470px">③ 老师区占满剩余高度，可点“展开”</span>
+</div>
+
+<script>
+  const side = document.getElementById("side");
+  const btn = document.getElementById("expand");
+  btn.addEventListener("click", () => {
+    const open = side.classList.toggle("expanded");
+    btn.setAttribute("aria-expanded", String(open));
+    btn.querySelector("span").textContent = open ? "收起" : "展开";
+    document.querySelector(".notes").style.display = open ? "none" : "";
+  });
+</script>
+</body>
+</html>

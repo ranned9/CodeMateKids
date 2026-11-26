@@ -32,15 +32,13 @@ const dom = {
   "prediction-compare": new FakeElement(),
   "live-output": new FakeElement(),
   "object-meta": new FakeElement(),
-  "stage-track": new FakeElement(),
-  "stage-actor": new FakeElement(),
+  "stage-path": new FakeElement("canvas"),
   "result-content": new FakeElement(),
   "canvas-title": new FakeElement(),
 };
 dom["prediction-compare"].hidden = false;
 dom["live-output"].hidden = false;
 dom["live-output"].textContent = "旧输出";
-dom["stage-track"].scrollLeft = 30;
 
 const state = {
   activeTaskId: "main",
@@ -76,8 +74,6 @@ assert.equal(dom["prediction-compare"].hidden, true);
 assert.equal(dom["live-output"].hidden, true);
 assert.equal(dom["live-output"].textContent, "");
 assert.equal(dom["object-meta"].textContent, "角色还没有动过。");
-assert.equal(dom["stage-actor"].style.left, "24px");
-assert.equal(dom["stage-track"].scrollLeft, 0);
 assert.equal(dom["result-content"].children.length, 1);
 
 let editorProgram = null;

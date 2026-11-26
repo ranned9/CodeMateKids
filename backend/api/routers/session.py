@@ -23,10 +23,13 @@ def submit_prediction(body: PredictionRequest, request: Request) -> dict:
     settings = request.app.state.settings
     _, store = classroom_session(request)
     bundle = load_course(settings)
-    find_task(settings, body.taskId, bundle)
+    task = find_task(settings, body.taskId, bundle)
     context = body.learningContext.model_dump() if body.learningContext else {}
     key = learning_key(context, bundle, body.taskId)
-    attempts = store.add_prediction(body.taskId, body.value, bundle.content_version)
+    attempts = store.add_prediction(
+        body.taskId, body.value, bundle.content_version, course_id=bundle.course["courseId"],
+        knowledge_point_id=next(iter(task.get("teaching", {}).get("knowledgePointIds", [])), "kp.loop"),
+    )
     data = {"taskId": body.taskId, "value": body.value, "runUnlocked": True, "attempts": attempts}
     if key:
         program = context.get("program")
@@ -49,7 +52,9 @@ def submit_feedback(body: FeedbackRequest, request: Request) -> dict:
     settings = request.app.state.settings
     _, store = classroom_session(request)
     bundle = load_course(settings)
-    find_task(settings, body.taskId, bundle)
+    task = find_task(settings, body.taskId, bundle)
+    course_id = bundle.course["courseId"]
+    point = next(iter(task.get("teaching", {}).get("knowledgePointIds", [])), "kp.loop")
     skipped = False
     if body.kind == "skip":
         store.mark_skipped(body.taskId, bundle.content_version)
@@ -63,6 +68,7 @@ def submit_feedback(body: FeedbackRequest, request: Request) -> dict:
             confidence=0.8,
             alternatives=["可能只是累了", "可能想先看看别的任务"],
             follow_up="稍后提供回到该任务的入口，不施加压力",
+            course_id=course_id, knowledge_point_id=point,
         )
     elif body.kind == "resume":
         store.mark_resumed(body.taskId)
@@ -74,6 +80,7 @@ def submit_feedback(body: FeedbackRequest, request: Request) -> dict:
             confidence=0.8,
             alternatives=["可能只是点错了"],
             follow_up="保持任务可编辑，不追加提示",
+            course_id=course_id, knowledge_point_id=point,
         )
     else:
         observed = body.note or "孩子完成了任务自评"
@@ -85,6 +92,7 @@ def submit_feedback(body: FeedbackRequest, request: Request) -> dict:
             confidence=0.7,
             alternatives=["自评可能比较笼统"],
             follow_up="在变式任务中观察是否能独立完成",
+            course_id=course_id, knowledge_point_id=point,
         )
     return ok({"taskId": body.taskId, "kind": body.kind, "skipped": skipped})
 

@@ -20,6 +20,7 @@ import { bindModelConfig } from "./views/modelConfig.js";
 import { bindStudents } from "./views/students.js";
 import { showSummary } from "./views/summary.js";
 import { createTaskReader } from "./views/taskReader.js";
+import { renderTaskTabs, shortTaskTitle } from "./views/taskTabs.js";
 import { renderToolbox } from "./views/toolbox.js";
 import { createTutor } from "./views/tutor.js";
 import { createTutorChat } from "./views/tutorChat.js";
@@ -108,12 +109,7 @@ function collectDom() {
     "reset-button",
     "run-hint",
     "run-locate",
-    "stage-ticks",
-    "stage-track",
-    "stage-lane",
     "stage-path",
-    "stage-target",
-    "stage-actor",
     "object-meta",
     "result-panel",
     "result-tabs",
@@ -160,6 +156,12 @@ function collectDom() {
     "confirm-dialog",
     "confirm-title",
     "confirm-text",
+    "task-tabs",
+    "project-menu",
+    "tutor-quick",
+    "tutor-expand",
+    "tutor-stage-mini",
+    "tutor-stage-mini-text",
   ];
   for (const id of ids) {
     dom[id] = document.getElementById(id);
@@ -244,13 +246,13 @@ function resultCallbacks() {
     hintLabel: tutor?.focus ? "问小老师" : undefined,
     onVariant: next ? () => switchTask(next.taskId) : null,
     onNextTask: next ? () => switchTask(next.taskId) : null,
-    nextTaskLabel: next ? `下一题 · ${next.title}` : "",
+    nextTaskLabel: next ? `下一题：${shortTaskTitle(next.title)}` : "",
     onSummary: openSummary,
   };
 }
 
 function nextTask(task) {
-  const candidate = state.tasks.get(task?.nextTaskId || task?.variantTaskId);
+  const candidate = state.tasks.get(task?.nextTaskId === undefined ? task?.variantTaskId : task.nextTaskId);
   return candidate?.enterable ? candidate : null;
 }
 
@@ -295,6 +297,7 @@ function renderAll(reason = "all") {
   }
   taskReader?.updateContext();
   renderCourse(dom["course-content"], state, { taskReader });
+  renderTaskTabs(dom["task-tabs"], state, { onSelectTask: (taskId) => switchTask(taskId) });
   renderCoursePanels(
     {
       taskList: dom["task-list-panel"],
@@ -449,13 +452,8 @@ async function switchStudent(studentId) {
 
 function stageElements() {
   return {
-    actor: dom["stage-actor"],
-    track: dom["stage-track"],
-    lane: dom["stage-lane"],
     path: dom["stage-path"],
     meta: dom["object-meta"],
-    target: dom["stage-target"],
-    ticks: dom["stage-ticks"],
   };
 }
 
@@ -514,7 +512,53 @@ function changeHistory(action) {
   }
 }
 
+/** 海龟老师“展开”：面板盖住舞台和运行区，顶部留一行舞台状态；运行开始或按 Esc 时收起。 */
+function setTutorExpanded(open, { focus = false } = {}) {
+  const column = dom["tutor-panel"]?.closest?.(".feedback-column");
+  const button = dom["tutor-expand"];
+  if (!column || !button) return;
+  column.classList.toggle("tutor-expanded", open);
+  button.setAttribute("aria-expanded", String(open));
+  button.querySelector("span").textContent = open ? "收起" : "展开";
+  dom["tutor-stage-mini"].hidden = !open;
+  if (open) syncTutorStageMini();
+  if (focus) (open ? dom["tutor-chat-input"] : button)?.focus();
+  editor?.refresh?.();
+}
+
+function syncTutorStageMini() {
+  const text = dom["tutor-stage-mini-text"];
+  if (!text) return;
+  const verdict = dom["result-content"]?.querySelector?.(".result-status")?.textContent || "";
+  text.textContent = `舞台：${dom["object-meta"]?.textContent || ""}${verdict ? ` ${verdict}` : ""}`;
+}
+
+function bindTutorExpand() {
+  const button = dom["tutor-expand"];
+  if (!button) return;
+  button.addEventListener("click", () => {
+    setTutorExpanded(button.getAttribute("aria-expanded") !== "true", { focus: true });
+  });
+  dom["tutor-panel"].addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && button.getAttribute("aria-expanded") === "true") {
+      event.stopPropagation();
+      setTutorExpanded(false, { focus: true });
+    }
+  });
+  if (typeof MutationObserver === "function") {
+    const observer = new MutationObserver(() => {
+      if (!dom["tutor-stage-mini"].hidden) syncTutorStageMini();
+    });
+    for (const target of [dom["object-meta"], dom["result-content"]]) {
+      if (target) observer.observe(target, { childList: true, characterData: true, subtree: true });
+    }
+  }
+}
+
 function handleStateChange(reason) {
+  if (reason === "phase" && ["validating", "running"].includes(state.phase)) {
+    setTutorExpanded(false);
+  }
   if (reason === "phase") {
     tutor?.updateContext();
     editor?.render();
@@ -599,8 +643,36 @@ async function boot() {
     toast,
   });
   subscribe(handleStateChange);
-  dom["save-project"].addEventListener("click", projects.saveProject);
-  dom["open-project"].addEventListener("click", () => dom["project-file"].click());
+  const closeProjectMenu = () => {
+    if (dom["project-menu"]) dom["project-menu"].open = false;
+  };
+  dom["save-project"].addEventListener("click", () => {
+    closeProjectMenu();
+    return projects.saveProject();
+  });
+  dom["open-project"].addEventListener("click", () => {
+    closeProjectMenu();
+    dom["project-file"].click();
+  });
+  document.addEventListener("click", (event) => {
+    if (dom["project-menu"]?.open && !dom["project-menu"].contains(event.target)) closeProjectMenu();
+  });
+  dom["project-menu"]?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && dom["project-menu"].open) {
+      event.stopPropagation();
+      closeProjectMenu();
+      dom["project-menu"].querySelector("summary")?.focus();
+    }
+  });
+  bindTutorExpand();
+  dom["tutor-quick"]?.addEventListener("click", (event) => {
+    const chip = event.target.closest?.("[data-quick]");
+    const input = dom["tutor-chat-input"];
+    const form = dom["tutor-chat-form"];
+    if (!chip || !input || !form || dom["tutor-chat-send"]?.disabled) return;
+    input.value = chip.dataset.quick;
+    form.requestSubmit();
+  });
   dom["project-file"].addEventListener("change", () => {
     const file = dom["project-file"].files?.[0];
     projects.openProject(file);

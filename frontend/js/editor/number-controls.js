@@ -9,12 +9,21 @@ const COMPARISONS = {
 
 export function fieldChoiceText(field, value) {
   if (field.name === "operator") return COMPARISONS[value]?.symbol ?? String(value ?? "");
-  if (field.name === "degrees" && value != null) return `${value}°`;
+  if ((field.name === "degrees" || field.suggestions) && value != null) return `${value}°`;
   return String(value ?? "");
 }
 
 function choiceOptionText(field, value) {
   return field.name === "operator" ? COMPARISONS[value]?.label ?? String(value) : fieldChoiceText(field, value);
+}
+
+function appendOptions(select, field, values) {
+  for (const choice of values) {
+    const option = document.createElement("option");
+    option.value = String(choice);
+    option.textContent = choiceOptionText(field, choice);
+    select.appendChild(option);
+  }
 }
 
 export class FieldControls {
@@ -56,18 +65,22 @@ export class FieldControls {
         const key = `${node.blockId}.${field.name}`;
         const inputField = this.editor.fieldForEdit(node.blockId, field);
         let control = this.controls.get(key);
-        if (!control || control.choices !== inputField.choices) {
+        if (!control || control.choices !== inputField.choices || control.suggestions !== inputField.suggestions) {
           control?.element.remove();
           control = this.create(node.blockId, inputField);
           this.controls.set(key, control);
         }
-        const { element, input, caption } = control;
+        const { element, input, caption, preset } = control;
         const value = node.inputs?.[field.name];
         if (control.value !== value || document.activeElement !== input) {
           input.value = String(value ?? "");
         }
         control.value = value;
         input.disabled = !editable;
+        if (preset) {
+          preset.disabled = !editable;
+          preset.value = inputField.suggestions.includes(value) ? String(value) : "";
+        }
         if (caption) {
           caption.textContent = fieldChoiceText(field, value);
         } else {
@@ -111,22 +124,33 @@ export class FieldControls {
     const label = { times: "重复次数", degrees: "转弯角度", threshold: "比较步数", operator: "比较方式" }[field.name];
     input.setAttribute("aria-label", label || field.label || field.name);
     let caption = null;
+    let preset = null;
     if (field.choices) {
       caption = document.createElement("span");
       caption.setAttribute("aria-hidden", "true");
       element.appendChild(caption);
-      for (const choice of field.choices) {
-        const option = document.createElement("option");
-        option.value = String(choice);
-        option.textContent = choiceOptionText(field, choice);
-        input.appendChild(option);
-      }
+      appendOptions(input, field, field.choices);
     } else {
       input.type = "number";
       input.addEventListener("focus", () => input.select());
     }
 
-    const control = { element, input, caption, choices: field.choices };
+    if (field.suggestions?.length) {
+      element.className += " has-presets";
+      if (field.name === "degrees") element.dataset.unit = "°";
+      preset = document.createElement("select");
+      preset.setAttribute("aria-label", "选择预设角度");
+      preset.title = "选择预设角度";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "选择预设角度";
+      placeholder.disabled = true;
+      placeholder.hidden = true;
+      preset.appendChild(placeholder);
+      appendOptions(preset, field, field.suggestions);
+    }
+
+    const control = { element, input, caption, preset, choices: field.choices, suggestions: field.suggestions };
     const commit = (value) => {
       if (!input.disabled) {
         this.editor.commitFieldValue(blockId, field.name, value);
@@ -154,6 +178,10 @@ export class FieldControls {
       });
     }
     element.appendChild(input);
+    if (preset) {
+      preset.addEventListener("change", () => commit(preset.value));
+      element.appendChild(preset);
+    }
     this.layer.appendChild(element);
     return control;
   }

@@ -32,6 +32,9 @@ oh_modules/
 .idea/
 .vscode/
 
+# 设计稿的逐日备份（整份前端快照，恢复历史请用 git）
+mockups/backup-*/
+
 # 系统文件
 .DS_Store
 Thumbs.db

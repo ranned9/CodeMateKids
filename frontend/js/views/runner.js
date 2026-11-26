@@ -606,7 +606,7 @@ export function createRunner({
       if (resetToTask(task.taskId) === false) return;
     } else {
       editor.setProgram(programWorkspace(task.initialProgram));
-      resetObjectView(elements.objectView);
+      resetObjectView(elements.objectView, task);
       setPhase("editing");
     }
     updateControls();

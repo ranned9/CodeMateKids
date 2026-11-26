@@ -62,7 +62,7 @@ const REQUIRED_IDS = [
   "stop-button",
   "reset-button",
   "run-hint",
-  "stage-actor",
+  "stage-path",
   "object-meta",
   "result-content",
   "prediction-compare",

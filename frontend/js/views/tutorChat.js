@@ -46,7 +46,7 @@ export function createTutorChat({ elements, state, editor, onLocate, onReplayFra
       input.value = "";
       voiceSourcePending = false;
       clearNode(log);
-      welcome = appendParagraph(log, "有哪一步想一起看看？", "muted");
+      welcome = appendParagraph(log, "你好，我是海龟老师。搭积木时卡住了，随时问我。", "tutor-welcome");
     }
     const kind = editor.layout?.nodes.find((node) => node.blockId === state.selectedBlockId)?.kind;
     const definition = state.blocksByKind.get(kind);
@@ -594,7 +594,7 @@ export function describeEditedRun(result, edit) {
   if (Number.isInteger(steps) && Number.isInteger(moves)) {
     observations.push(`调整后，海龟前进了 ${moves} 次，一共走了 ${steps} 步。`);
   }
-  if (edit.field === "degrees" && Number.isInteger(heading)) {
+  if (edit.field === "degrees" && Number.isFinite(heading)) {
     observations.push(`海龟最后朝向 ${heading}°。`);
   }
   const change = edit.field === "times" && Number.isInteger(edit.previousMoves) && Number.isInteger(moves)

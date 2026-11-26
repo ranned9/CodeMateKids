@@ -30,8 +30,8 @@ flowchart LR
 | [backend/app.py](../backend/app.py) 与 [api/](../backend/api/) | 应用工厂、静态文件托管、路由、入参模型与错误包封 |
 | [backend/service/](../backend/service/) | 课程加载与缓存、启动检查、作品保存与迁移入口以及运行编排 |
 | [backend/domain/](../backend/domain/) 与 [runner/](../backend/runner/) | 领域层维护积木定义、程序校验和迁移，运行层负责代码生成、执行策略、资源限制和进程通信 |
-| [backend/tutor/](../backend/tutor/)、[session/](../backend/session/) 与 [infra/](../backend/infra/) | 辅导策略、回复校验和模拟兜底，学习证据与运行尝试的内存存储，环境配置与脱敏日志 |
-| [content/demo-loop/](../content/demo-loop/) 与 [schemas/](../schemas/) | 一个循环主题课程及其主任务、变式、辅导回复和版本化数据定义 |
+| [backend/tutor/](../backend/tutor/)、[session/](../backend/session/) 与 [infra/](../backend/infra/) | 辅导策略、当前会话证据、本机学生档案与学习观察、环境配置与脱敏日志 |
+| [content/demo-loop/](../content/demo-loop/) 与 [schemas/](../schemas/) | 默认课包包含循环、正方形和条件分支练习。Schema 定义课包、作品和协议 |
 | [harmony/](../harmony/) | 独立的 ArkTS / ArkUI 示例工程，Windows Demo 的启动与执行链路无需鸿蒙工具链 |
 
 ## 关键流程
@@ -55,7 +55,9 @@ flowchart LR
 ## 如何扩展
 
 - **新增积木或参数。** 先在[积木清单](../schemas/blocks.v1.json)定义端口、默认值与数值范围。涉及新运行语义时同步[后端校验](../backend/domain/program.py)、[Python 生成](../backend/runner/compiler.py)和[编辑器预览](../frontend/js/views/canvas.js)，补充[能力矩阵](matrix.md)和回归。参数接受数字积木时，前端的连接判断、直接输入和嵌入后编辑遵循同一字段约束。
-- **新增循环课任务。** 在[课程包](../content/demo-loop/)中同步任务、起始程序、可用积木和提示。保存和运行从任务的起始程序取课程引用。仅修改课程内容时递增 `contentVersion`，涉及作品格式或协议时核对相应版本和兼容用例。
+- **新增课包。** 复制 `course.json`、`blocks.used.json`、`tutor.replies.json`，填写唯一的 `courseId` 和各任务的 `taskId`。每个起始程序的 `courseRef` 与所属课包和任务对应。指定 `CMK_COURSE_DIR` 后重启服务，工作台从 `GET /api/v1/course` 读取活动课包。修改已发布课包内容时递增 `contentVersion`。[默认课包](../content/demo-loop/) · [课包 Schema](../schemas/course.v1.json)
+- **声明任务顺序。** 一个 `main` 任务作为入口。数组顺序用于任务列表，`nextTaskId` 用于运行结果与总结的后续练习，末题可填 `null`。变式的 `variantOf` 指向主任务。可用 `transferTaskId` 指定总结重点观察的变式，旧包的主任务 `variantTaskId` 和正方形迁移题仍可识别。
+- **声明判题和反馈。** `successCriteria` 校验舞台状态，`programCriteria` 可要求单一正方形循环，`executionCriteria` 可核对某次转弯的步数和分支归属。路口题的 `only` 要求整轮只有一次转弯。用 `goalLabel` 和 `feedback` 配置展示与结果文案。所有任务共用二维舞台，`teaching.stageGoal` 给舞台配场景（`beach` 沙滩带步数刻度、`grid` 方格纸或 `road` 小路）和从原点出发的横平竖直目标路线，只用于展示，不参与判题。旧字段 `stageView` 已停用，读到时忽略。`useHintLadder` 启用课包自带的分层辅导。新增运行语义或判题种类时同步扩展实现与 Schema。[路口题配置](../content/demo-loop/course.json) · [接口契约](api-contract.md#6-课程与内容)
 - **调整课堂布局。** 面板和焦点从 `workbenchPanels.js` 接入。断点须同时核对 `ux/layoutMode.js` 与 CSS。Canvas 绘制和有效落点分别由 `editor/render.js` 与 `editor/targets.js` 负责，避免在页面入口复制这些规则。
 - **修改运行或工作区切换。** 先补能复现的顺序测试，覆盖提交晚到、终态未确认和保存后再次编辑。浏览器层复验任务、预测、运行和保存打开。 [测试与验收](run.md#测试与验收)
 

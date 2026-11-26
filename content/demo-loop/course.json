@@ -4,21 +4,23 @@
   "title": "让角色重复前进",
   "ageBand": "小学三年级及以上",
   "learningObjectives": [
-    "能看出程序里重复出现的动作",
     "能用重复积木表达重复次数",
-    "能检查角色实际走了几步"
+    "能检查角色实际执行了哪些动作",
+    "能用条件判断让海龟到路口再转弯"
   ],
   "prerequisites": ["按顺序执行动作"],
   "knowledgePoints": [
     {"id": "kp.sequence", "name": "顺序"},
-    {"id": "kp.loop", "name": "循环"}
+    {"id": "kp.loop", "name": "循环"},
+    {"id": "kp.branch", "name": "条件判断"}
   ],
+  "transferTaskId": "transfer-square",
   "tasks": [
     {
       "taskId": "main",
       "type": "main",
       "title": "让角色走四步",
-      "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "knowledgePointIds": ["kp.loop"]},
+      "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "stageGoal": {"scene": "beach", "route": [[0, 0], [4, 0]]}, "knowledgePointIds": ["kp.loop"]},
       "objective": "让角色累计走 4 步。试着把前进积木放在重复里，再运行看看。",
       "predictionQuestion": "搭好积木后，先猜一猜角色会前进几次。",
       "durationHint": "大约 5 分钟",
@@ -84,6 +86,7 @@
       },
       "variantOf": null,
       "variantTaskId": "variant",
+      "nextTaskId": "variant",
       "ageNote": "使用短句和可见角色反馈，每次只需改动一个数字。",
       "reviewStatus": "reviewed"
     },
@@ -91,7 +94,7 @@
       "taskId": "variant",
       "type": "variant",
       "title": "小海龟走六步",
-      "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "knowledgePointIds": ["kp.loop"]},
+      "teaching": {"goalKind": "distance", "suggestedStepsPerMove": 1, "stageGoal": {"scene": "beach", "route": [[0, 0], [6, 0]]}, "knowledgePointIds": ["kp.loop"]},
       "objective": "让小海龟累计走 6 步。加练时，可以用分支让它走到指定步数后转弯。",
       "predictionQuestion": "搭好积木后，先猜一猜小海龟会前进几次。",
       "durationHint": "大约 4 分钟",
@@ -168,7 +171,18 @@
       "objective": "让海龟沿四条边走回起点。每条边向前走一步，再转一个直角。试着把这两个动作放进同一个重复积木。",
       "predictionQuestion": "搭好积木后，先猜一猜海龟会前进几次。",
       "durationHint": "大约 5 分钟",
-      "teaching": {"goalKind": "square", "knowledgePointIds": ["kp.loop"]},
+      "teaching": {
+        "goalKind": "square",
+        "badge": "迁移挑战",
+        "goalLabel": "正方形",
+        "stageGoal": {"scene": "grid", "route": [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]},
+        "knowledgePointIds": ["kp.loop"],
+        "feedback": {
+          "success": "海龟走完了四条边，前进和转弯也在同一个循环里。",
+          "retry": "看看海龟是否沿着四条边回到起点。每条边走完后，要转一个直角。",
+          "structureMissed": "路线走对了。再把前进和转弯按顺序放进同一个重复积木。"
+        }
+      },
       "initialProgram": {
         "format": "codematekids.program",
         "formatVersion": 1,
@@ -196,13 +210,77 @@
         {"level": 3, "action": "partial_example", "promptText": "想象沿着桌边走，走到角上就朝着下一条边转过去。", "executableNextStep": "把一条边的两个动作接在一起"}
       ],
       "variantOf": "main",
+      "nextTaskId": "branch-crossroad",
       "ageNote": "从循环移动迁移到重复一组动作。",
       "reviewStatus": "reviewed"
+    },
+    {
+      "taskId": "branch-crossroad",
+      "type": "variant",
+      "title": "走到路口再转弯",
+      "objective": "让海龟先直走 3 步到路口，用「如果」判断走过的步数。到路口时向上转 90°，再向前走 2 步。",
+      "predictionQuestion": "先猜一猜，这段程序会执行几次「向前走」？",
+      "durationHint": "大约 5 分钟",
+      "teaching": {
+        "goalKind": "route",
+        "badge": "分支练习",
+        "goalLabel": "路口再转弯",
+        "stageGoal": {"scene": "road", "route": [[0, 0], [3, 0], [3, 2]]},
+        "useHintLadder": true,
+        "knowledgePointIds": ["kp.branch"],
+        "feedback": {
+          "success": "海龟走了 3 步才在「如果」里面转弯，接着沿新方向走了 2 步。",
+          "retry": "沿路线找找拐角。海龟先直走 3 步，再向上走 2 步了吗？",
+          "structureMissed": "海龟到了终点。再用「如果」来决定第 3 步后是否转弯。"
+        }
+      },
+      "initialProgram": {
+        "format": "codematekids.program",
+        "formatVersion": 1,
+        "target": {"language": "python", "version": "3.12"},
+        "courseRef": {"courseId": "demo-loop", "version": 1, "taskId": "branch-crossroad"},
+        "root": {
+          "blockId": "crossroad-start", "kind": "event.start", "inputs": {},
+          "next": {
+            "blockId": "crossroad-loop", "kind": "control.repeat", "inputs": {"times": 5},
+            "body": [{"blockId": "crossroad-move", "kind": "motion.move", "inputs": {}}]
+          }
+        },
+        "metadata": {"createdAt": "2026-11-26T00:00:00+08:00", "updatedAt": "2026-11-26T00:00:00+08:00"}
+      },
+      "expectedBehavior": "海龟先直走到路口，只在累计走了 3 步时转向上方，然后到达终点。",
+      "allowedBlockKinds": ["event.start", "control.repeat", "motion.move", "motion.turn", "control.if", "control.else"],
+      "successCriteria": [
+        {"code": "crossroad_x", "description": "海龟先向右走满 3 步", "check": {"object": "stage", "field": "x", "op": "eq", "value": 3}},
+        {"code": "crossroad_y", "description": "转弯后海龟向上走了 2 步", "check": {"object": "stage", "field": "y", "op": "eq", "value": 2}},
+        {"code": "crossroad_steps", "description": "海龟一共走了 5 步", "check": {"object": "stage", "field": "steps", "op": "eq", "value": 5}},
+        {"code": "crossroad_heading", "description": "海龟最后朝上", "check": {"object": "stage", "field": "heading", "op": "eq", "value": 90}}
+      ],
+      "executionCriteria": [
+        {
+          "code": "crossroad_conditional_turn",
+          "description": "让「如果」里面的转弯在累计走了 3 步时执行。",
+          "check": {"kind": "motion.turn", "inside": "control.if", "atSteps": 3, "only": true}
+        }
+      ],
+      "commonErrors": [
+        {"errorPattern": "unknown", "linkedHintLevels": [1, 2, 3], "description": "在路口之前或之后转了弯，或转弯没有放进「如果」"},
+        {"errorPattern": "program_invalid", "linkedHintLevels": [1], "description": "条件积木没有接好或比较步数未填写"}
+      ],
+      "hintLadder": [
+        {"level": 1, "action": "hint", "promptText": "先用单步运行数脚印。在哪一步之后，海龟刚好到路口？", "executableNextStep": "执行一步，观察舞台上的累计步数"},
+        {"level": 2, "action": "explain", "promptText": "走完一步再比较累计步数。「等于」只会在数值正好相同时成立。", "executableNextStep": "在前进积木后面接上「如果」，试试「等于」"},
+        {"level": 3, "action": "break_down", "promptText": "把转弯放进「如果」里面。条件成立才转弯，下一次前进会沿新方向继续走。", "executableNextStep": "运行一次，核对拐角是否在第 3 步之后"}
+      ],
+      "variantOf": "main",
+      "nextTaskId": null,
+      "ageNote": "先动一步再判断，单步观察条件成立时才执行转弯。",
+      "reviewStatus": "draft"
     }
   ],
   "otherThemes": [
     {"themeId": "variable", "title": "变量", "status": "coming_soon"}
   ],
   "reviewStatus": "reviewed",
-  "contentVersion": "1.3.0"
+  "contentVersion": "1.4.2"
 }

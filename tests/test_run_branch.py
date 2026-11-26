@@ -6,7 +6,7 @@ import pytest
 
 from backend.domain.program import ProgramError, validate_program
 from backend.runner.supervisor import run_program
-from tests.helpers import node, program
+from tests.helpers import drain, node, program, submit
 
 
 LIMITS = {"wallTimeMs": 3000, "memoryMb": 128, "maxOutputBytes": 16384, "maxRecursionDepth": 200}
@@ -59,3 +59,57 @@ def test_if_rejects_an_unknown_comparison():
     with pytest.raises(ProgramError) as error:
         validate_program(program(root))
     assert error.value.block_id == "if"
+
+
+@pytest.mark.parametrize("attempt", ["correct", "unguarded", "early", "never_taken", "extra_turn"])
+def test_crossroad_lesson_checks_route_and_executed_condition(client, attempt):
+    task_id = "branch-crossroad"
+    body = client.get("/api/v1/course").json()["data"]
+    task = next(task for task in body["tasks"] if task["taskId"] == task_id)
+    payload = task["initialProgram"]
+    loop = payload["root"]["next"]
+    turn = node("corner-turn", "motion.turn", {"degrees": 90})
+    if attempt == "unguarded":
+        loop["inputs"]["times"] = 3
+        loop["next"] = {**turn, "next": node("after-corner", "control.repeat", {"times": 2}, body=[
+            node("after-corner-move", "motion.move", {}),
+        ])}
+    else:
+        threshold = {"early": 2, "never_taken": 6}.get(attempt, 3)
+        loop["body"].append(node("at-corner", "control.if", {"operator": "==", "threshold": threshold}, body=[turn]))
+        if attempt == "extra_turn":
+            loop["next"] = node("extra-spin", "motion.turn", {"degrees": 360})
+
+    assert client.post("/api/v1/session/prediction", json={"taskId": task_id, "value": 5}).status_code == 200
+    request_id = f"run-crossroad-{attempt}"
+    assert submit(client, payload, request_id).status_code == 200
+    _, result = drain(client, request_id)
+    assert result["status"] == "completed"
+    assert result["success"] is (attempt == "correct")
+    learning = result["learning"]
+    assert learning["traceQuality"] == "verified"
+    assert learning["structureMet"] is (attempt == "correct")
+    if attempt in ("correct", "unguarded", "extra_turn"):
+        stage = result["objects"][0]
+        assert (stage["x"], stage["y"], stage["heading"], stage["steps"]) == (3, 2, 90, 5)
+        assert learning["routeMet"] is True
+    if attempt == "unguarded":
+        assert result["failures"] == [task["executionCriteria"][0]["description"]]
+        assert learning["pattern"] == "unknown"
+
+
+def test_crossroad_hint_comes_from_the_course_pack(client):
+    course = client.get("/api/v1/course").json()["data"]
+    task = next(task for task in course["tasks"] if task["taskId"] == "branch-crossroad")
+    hint = client.post("/api/v1/tutor/hints", json={
+        "taskId": task["taskId"],
+        "learnerChoice": "hint",
+        "learningContext": {
+            "scope": {"contentVersion": course["contentVersion"], "workspaceId": "branch-hint"},
+            "program": task["initialProgram"],
+        },
+    })
+    assert hint.status_code == 200
+    guidance = hint.json()["data"]
+    assert guidance["message"] == task["hintLadder"][0]["promptText"]
+    assert guidance["nextStep"] == task["hintLadder"][0]["executableNextStep"]

@@ -72,6 +72,14 @@ export function buildResultSummary({
       ? structure ? "海龟走完了四条边，前进和转弯也在同一个循环里。" : "路线达到了舞台条件。接下来把前进和转弯放进同一个循环。"
       : "看看海龟走过的边。它回到起点了吗？";
   }
+  const feedback = task?.teaching?.feedback;
+  if (feedback && data?.status === "completed") {
+    reached = Boolean(data.success);
+    goalLine = data.success ? feedback.success || goalLine
+      : data.learning?.routeMet && data.learning?.structureMet === false
+        ? feedback.structureMissed || feedback.retry || goalLine
+        : feedback.retry || goalLine;
+  }
 
   let nextAction = "backToBlocks";
   if (ownership === "stale") {
@@ -79,7 +87,7 @@ export function buildResultSummary({
   } else if (data?.error) {
     nextAction = "backToBlocks";
   } else if (data?.success) {
-    nextAction = task?.nextTaskId ? "nextTask" : task?.type === "variant" ? "summary" : "variant";
+    nextAction = task?.nextTaskId ? "nextTask" : task?.variantTaskId ? "variant" : "summary";
   } else if (data) {
     nextAction = "hint";
   }

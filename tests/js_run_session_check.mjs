@@ -115,6 +115,7 @@ globalThis.window = {
   },
 };
 Object.assign(state, {
+  activeTaskId: "main",
   startup: { status: "ready" },
   tasks: new Map([["main", { taskId: "main", enterable: true }]]),
   blocksByKind: new Map([["event.start", { runnable: true }]]),
@@ -277,7 +278,7 @@ assert.deepEqual(steps, [1, 3]);
 assert.equal(state.runningBlockId, "b-move");
 const moved = { ...stage, steps: 2, moves: 1, x: 2 };
 stream.emit("event", { seq: 4, kind: "block_exit", blockId: "b-move", stage: moved });
-assert.match(objectView.meta.textContent, /累计走了 2 步，位置（2，0）/);
+assert.match(objectView.meta.textContent, /累计走了 2 步。当前位置（2，0）/);
 stream.emit("result", { requestId: requests.at(-1).requestId, status: "completed", objects: [moved] });
 assert.equal(debugRunner.isBusy(), false);
 assert.equal(debugElements.debugPanel.hidden, true);

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -332,7 +333,7 @@ def _validate_field_value(
     if value_type in ("number", "integer"):
         if value_type == "integer" and type(value) is not int:
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要一个整数。", block_id)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if type(value) not in (int, float) or (type(value) is float and not math.isfinite(value)):
             raise ProgramError("PROGRAM_SCHEMA_INVALID", "这个位置需要一个数字。", block_id)
         value_range = field.get("range") or {}
         if "min" in value_range and value < value_range["min"]:

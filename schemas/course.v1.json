@@ -16,7 +16,7 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "courseId": {"type": "string", "minLength": 1},
+    "courseId": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
     "version": {"type": "integer", "minimum": 1},
     "title": {"type": "string", "minLength": 1, "maxLength": 20},
     "ageBand": {"const": "小学三年级及以上"},
@@ -48,6 +48,7 @@
       "minItems": 2,
       "items": {"$ref": "#/$defs/task"}
     },
+    "transferTaskId": {"type": ["string", "null"]},
     "otherThemes": {
       "type": "array",
       "items": {
@@ -77,10 +78,30 @@
           "required": ["object", "field", "op", "value"],
           "additionalProperties": false,
           "properties": {
-            "object": {"type": "string"},
-            "field": {"type": "string"},
+            "object": {"const": "stage"},
+            "field": {"enum": ["x", "y", "heading", "steps", "moves"]},
             "op": {"enum": ["eq", "ge", "le"]},
             "value": {"type": "number"}
+          }
+        }
+      }
+    },
+    "executionCriterion": {
+      "type": "object",
+      "required": ["code", "description", "check"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string", "minLength": 1, "maxLength": 64},
+        "description": {"type": "string", "minLength": 1, "maxLength": 160},
+        "check": {
+          "type": "object",
+          "required": ["kind", "inside", "atSteps"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "motion.turn"},
+            "inside": {"enum": ["control.if", "control.else"]},
+            "atSteps": {"type": "integer", "minimum": 0},
+            "only": {"type": "boolean"}
           }
         }
       }
@@ -141,7 +162,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "taskId": {"type": "string", "minLength": 1},
+        "taskId": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
         "type": {"enum": ["main", "variant"]},
         "title": {"type": "string"},
         "objective": {"type": "string"},
@@ -157,6 +178,10 @@
           "type": "array",
           "minItems": 1,
           "items": {"$ref": "#/$defs/criterion"}
+        },
+        "executionCriteria": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/executionCriterion"}
         },
         "commonErrors": {
           "type": "array",
@@ -177,9 +202,41 @@
           "required": ["goalKind"],
           "additionalProperties": false,
           "properties": {
-            "goalKind": {"enum": ["distance", "square"]},
+            "goalKind": {"enum": ["distance", "square", "route"]},
             "suggestedStepsPerMove": {"type": "integer", "minimum": 1, "maximum": 100},
-            "knowledgePointIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+            "knowledgePointIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "badge": {"type": "string", "minLength": 1, "maxLength": 24},
+            "goalLabel": {"type": "string", "minLength": 1, "maxLength": 24},
+            "stageView": {"enum": ["track", "path"], "deprecated": true, "description": "已停用：所有任务都用二维舞台。旧课包里的这个字段会被忽略。"},
+            "useHintLadder": {"type": "boolean"},
+            "stageGoal": {
+              "type": "object",
+              "required": ["scene", "route"],
+              "additionalProperties": false,
+              "properties": {
+                "scene": {"enum": ["grid", "road", "beach"]},
+                "route": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 20,
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {"type": "integer", "minimum": -20, "maximum": 20}
+                  }
+                }
+              }
+            },
+            "feedback": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "success": {"type": "string", "minLength": 1, "maxLength": 160},
+                "retry": {"type": "string", "minLength": 1, "maxLength": 160},
+                "structureMissed": {"type": "string", "minLength": 1, "maxLength": 160}
+              }
+            }
           }
         },
         "programCriteria": {

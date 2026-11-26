@@ -2,6 +2,7 @@
 import { drawToolboxBlock } from "../editor/render.js";
 
 const CATEGORY_ORDER = ["开始", "动作", "循环", "分支", "其他"];
+const UNAVAILABLE_CATEGORY = "暂不可用";
 let activeCategory = "全部";
 
 function categoryOf(kind) {
@@ -43,6 +44,9 @@ export function renderToolbox(container, state, callbacks) {
     if (b === "全部") return 1;
     return CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b);
   });
+  if (state.rejectedKinds.length > 0) {
+    categories.push(UNAVAILABLE_CATEGORY);
+  }
   if (!categories.includes(activeCategory)) {
     activeCategory = "全部";
   }
@@ -56,7 +60,9 @@ export function renderToolbox(container, state, callbacks) {
 
   function renderItems() {
     list.innerHTML = "";
-    const visible = definitions.filter(
+    const blocked = activeCategory === UNAVAILABLE_CATEGORY;
+    heading.hidden = blocked;
+    const visible = blocked ? state.rejectedKinds : definitions.filter(
       (definition) => activeCategory === "全部" || categoryOf(definition.kind) === activeCategory,
     );
     if (visible.length === 0) {
@@ -66,7 +72,7 @@ export function renderToolbox(container, state, callbacks) {
       list.appendChild(empty);
     }
     for (const definition of visible) {
-      list.appendChild(buildItem(definition, callbacks));
+      list.appendChild(buildItem(definition, callbacks, blocked));
     }
   }
 
@@ -79,7 +85,7 @@ export function renderToolbox(container, state, callbacks) {
     chip.setAttribute("aria-pressed", String(category === activeCategory));
     chip.addEventListener("click", () => {
       activeCategory = category;
-      for (const item of chips.querySelectorAll(".toolbox-chip")) {
+      for (const item of chips.children) {
         item.setAttribute("aria-pressed", String(item.dataset.category === activeCategory));
       }
       renderItems();
@@ -90,16 +96,6 @@ export function renderToolbox(container, state, callbacks) {
   container.appendChild(chips);
   container.appendChild(list);
   renderItems();
-
-  if (state.rejectedKinds.length > 0) {
-    const divider = document.createElement("p");
-    divider.className = "muted";
-    divider.textContent = "还有一些积木暂时不能运行：";
-    container.appendChild(divider);
-    for (const rejected of state.rejectedKinds) {
-      container.appendChild(buildItem(rejected, callbacks, true));
-    }
-  }
 }
 
 function clampRatio(value) {

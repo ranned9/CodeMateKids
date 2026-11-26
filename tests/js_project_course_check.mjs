@@ -22,6 +22,9 @@ class ElementStub {
   get firstChild() {
     return this.children[0];
   }
+  set innerHTML(value) {
+    if (value === "") this.children.length = 0;
+  }
   appendChild(child) {
     this.children.push(child);
     return child;
@@ -37,6 +40,19 @@ class ElementStub {
   }
   click() {
     return (this.onclick ?? this.listeners.get("click"))?.();
+  }
+  contains(node) {
+    return this === node || this.children.some((child) => child.contains(node));
+  }
+  querySelector(selector) {
+    const blockId = /^\[data-block-id="(.+)"\]$/.exec(selector)?.[1];
+    if (!blockId) return null;
+    if (this.dataset.blockId === blockId) return this;
+    return this.children.map((child) => child.querySelector(selector)).find(Boolean) || null;
+  }
+  focus() {
+    document.activeElement = this;
+    this.listeners.get("focus")?.();
   }
   showModal() {
     assert.equal(Boolean(this.open), false);
@@ -115,8 +131,16 @@ assert.equal(state.root, null);
 assert.equal(element("canvas-empty").hidden, false);
 const toolbox = element("toolbox-list");
 const categories = toolbox.children.find((item) => item.className === "toolbox-categories");
-assert.deepEqual(categories.children.map((item) => item.dataset.category), ["全部", "开始", "动作", "循环", "分支"]);
+assert.deepEqual(categories.children.map((item) => item.dataset.category),
+  ["全部", "开始", "动作", "循环", "分支", "暂不可用"]);
 const toolboxItems = toolbox.children.find((item) => item.className === "toolbox-items");
+assert.equal(toolbox.children.length, 3);
+categories.children.find((item) => item.dataset.category === "暂不可用").click();
+assert.deepEqual(toolboxItems.children.map((item) => item.dataset.kind), ["python.class", "python.import"]);
+assert.ok(toolboxItems.children.every((item) => !item.listeners.has("pointerdown")));
+toolboxItems.children[0].click();
+assert.match(element("toast").textContent, /演示课不使用类/);
+categories.children.find((item) => item.dataset.category === "全部").click();
 assert.deepEqual(toolboxItems.children.map((item) => item.dataset.kind).sort(),
   ["event.start", "control.repeat", "control.if", "control.else", "motion.move", "motion.turn"].sort());
 const startItem = toolboxItems.children.find((item) => item.dataset.kind === "event.start");
@@ -333,8 +357,18 @@ editor.selectBlock(moveId);
 assert.equal(editor.insertFromToolbox("motion.turn"), true);
 const turnId = state.selectedBlockId;
 const angleControl = editor.fieldControls.get(turnId, "degrees");
-assert.deepEqual(angleControl.input.children.map((option) => option.textContent), ["90°", "180°", "270°"]);
-setControl(angleControl, 180);
+assert.equal(angleControl.input.type, "number");
+assert.deepEqual(angleControl.preset.children.slice(1).map((option) => Number(option.value)),
+  Array.from({ length: 359 }, (_, index) => index + 1).filter((angle) => angle % 30 === 0 || angle % 45 === 0));
+setControl(angleControl, 360);
+assert.match(element("code-preview-text").textContent, /stage\.turn\(360\)/);
+setControl({ input: angleControl.preset }, 45);
+assert.equal(angleControl.input.value, "45");
+assert.match(element("code-preview-text").textContent, /stage\.turn\(45\)/);
+setControl(angleControl, -32.5);
+assert.match(element("code-preview-text").textContent, /stage\.turn\(-32\.5\)/);
+setControl(angleControl, "Infinity");
+assert.equal(angleControl.input.value, "-32.5");
 const angleTarget = editor.layout.targets.find((target) => target.id === `expr:${turnId}.degrees`);
 const anglePoint = { x: angleTarget.rect.x + angleTarget.rect.w / 2, y: angleTarget.rect.y + angleTarget.rect.h / 2 };
 const anglePreview = editor.dnd.buildPreview(anglePoint, {
@@ -342,12 +376,11 @@ const anglePreview = editor.dnd.buildPreview(anglePoint, {
   definition: state.blocksByKind.get("value.number"),
 });
 assert.equal(anglePreview.valid, true);
-assert.equal(anglePreview.numberValue, 180);
 assert.equal(editor.commitDrop(null, "value.number", anglePreview), true);
 const angleId = state.selectedBlockId;
-assert.match(element("code-preview-text").textContent, /stage\.turn\(180\)/);
-editor.commitFieldValue(angleId, "value", "91");
-assert.match(element("code-preview-text").textContent, /stage\.turn\(180\)/);
+assert.match(element("code-preview-text").textContent, /stage\.turn\(1\)/);
+editor.commitFieldValue(angleId, "value", "91.5");
+assert.match(element("code-preview-text").textContent, /stage\.turn\(91\.5\)/);
 setControl(editor.fieldControls.get(angleId, "value"), 270);
 assert.match(element("code-preview-text").textContent, /stage\.turn\(270\)/);
 assert.equal(editor.deleteBlock(angleId), true);
@@ -373,6 +406,19 @@ acceptReset = true;
 await element("reset-button").click();
 assert.equal(state.root, null);
 assert.equal(element("canvas-empty").hidden, false);
+
+const branchTab = element("task-tabs").children.find((button) => button.title === "走到路口再转弯");
+assert.equal(await branchTab.click(), true);
+assert.equal(element("stage-path").hidden, false);
+element("a11y-mirror").querySelector('[data-block-id="crossroad-move"]').focus();
+assert.equal(editor.insertFromToolbox("control.if"), true);
+const crossroadIf = state.selectedBlockId;
+assert.equal(document.activeElement.dataset.blockId, crossroadIf);
+editor.commitFieldValue(crossroadIf, "operator", "==");
+editor.commitFieldValue(crossroadIf, "threshold", "3");
+assert.equal(editor.insertFromToolbox("motion.turn"), true);
+assert.match(element("code-preview-text").textContent, /if stage\.steps == 3:\n        stage\.turn\(90\)/);
+await element("reset-button").click();
 
 function memoryStorage() {
   const items = new Map();
@@ -472,5 +518,17 @@ assert.equal(condition.next.body[0].kind, "motion.turn");
 assert.match(element("code-preview-text").textContent, /if stage\.steps < 2:\n    stage\.move\(1\)\nelse:\n    stage\.turn\(90\)/);
 currentEditor.selectBlock(conditionId);
 assert.equal(currentEditor.insertFromToolbox("control.else"), false);
+
+const altEntry = {
+  ...fixture.tasks[0],
+  taskId: "begin",
+  enterable: true,
+  initialProgram: { ...fixture.tasks[0].initialProgram, courseRef: { courseId: "my-course", version: 1, taskId: "begin" } },
+};
+startup = { ...startup, courseId: "my-course" };
+course = { ...course, course: { courseId: "my-course" }, entryTaskId: "begin", tasks: [course.tasks[1], altEntry] };
+await retry.click();
+assert.equal(state.course.course.courseId, "my-course");
+assert.equal(state.activeTaskId, "begin");
 
 console.log("JS-PROJECT-COURSE-CHECK PASSED");

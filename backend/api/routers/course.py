@@ -6,16 +6,16 @@ from fastapi import APIRouter, Request
 
 from backend.domain.blocks import load_blocks
 from backend.infra.errors import ok
-from backend.service.course import course_payload, load_course
+from backend.service.course import course_payload
 
 router = APIRouter(tags=["course"])
 
 
+@router.get("/course")
 @router.get("/course/{course_id}")
-def get_course(course_id: str, request: Request) -> dict:
+def get_course(request: Request, course_id: str | None = None) -> dict:
     settings = request.app.state.settings
-    bundle = load_course(settings)
-    payload = course_payload(settings, course_id, bundle)
+    payload = course_payload(settings, course_id)
     payload["agentMode"] = request.app.state.model_config.snapshot().effectiveMode
     return ok(payload)
 

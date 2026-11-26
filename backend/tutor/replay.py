@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +18,9 @@ MOVE_KIND = "motion.move"
 TURN_KIND = "motion.turn"
 REPEAT_KIND = "control.repeat"
 
+def _finite_number(value: Any) -> bool:
+    return type(value) is int or (type(value) is float and math.isfinite(value))
+
 
 @dataclass
 class ReplayResult:
@@ -25,6 +29,7 @@ class ReplayResult:
     rounds: int = 0
     reason: str = ""
     has_more: bool = False
+    ancestor_kinds: dict[str, set[str]] = field(default_factory=dict)
 
     @property
     def replayable(self) -> bool:
@@ -41,7 +46,7 @@ def _index_nodes(roots: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]]
             index[block_id] = node
             parents[block_id] = parent
             for child in node.get("body") or []:
-                walk(child, block_id if node.get("kind") == REPEAT_KIND else parent)
+                walk(child, block_id)
             node = node.get("next")
 
     for root in roots:
@@ -88,9 +93,19 @@ def analyze(
 
     roots = root if isinstance(root, list) else [root] if root else []
     index, parents = _index_nodes(roots)
+    ancestor_kinds: dict[str, set[str]] = {}
+    for block_id, parent in parents.items():
+        ancestor_kinds[block_id] = set()
+        while parent:
+            ancestor_kinds[block_id].add(index[parent]["kind"])
+            parent = parents[parent]
     stage = next((item for item in (objects or []) if isinstance(item, dict) and item.get("id") == "stage"), None)
     fields = ("x", "y", "heading", "steps", "moves")
-    if stage is None or any(type(stage.get(key)) is not int for key in fields):
+    if (
+        stage is None
+        or any(not _finite_number(stage.get(key)) for key in ("x", "y", "heading"))
+        or any(type(stage.get(key)) is not int for key in ("steps", "moves"))
+    ):
         return ReplayResult("unavailable", reason="missing_stage")
 
     actions: list[dict[str, Any]] = []
@@ -113,7 +128,7 @@ def analyze(
             continue
         parameter = "steps" if kind == MOVE_KIND else "degrees"
         amount = move_step_count(node) if kind == MOVE_KIND else number_input_value((node.get("inputs") or {}).get(parameter))
-        if type(amount) is not int:
+        if not _finite_number(amount) or (kind == MOVE_KIND and type(amount) is not int):
             return ReplayResult("unavailable", reason="unknown_motion_amount")
         if kind == MOVE_KIND:
             movement.move(amount)
@@ -121,7 +136,7 @@ def analyze(
             movement.turn(amount)
         actions.append({
             "blockId": block_id, "kind": kind, parameter: amount,
-            "round": repeat_entries if repeat_id and parents[block_id] == repeat_id else None,
+            "round": repeat_entries if repeat_id and REPEAT_KIND in ancestor_kinds[block_id] else None,
             "x": movement.x, "y": movement.y, "heading": movement.heading,
             "totalSteps": movement.steps, "moves": movement.moves,
         })
@@ -132,4 +147,7 @@ def analyze(
 
     rounds = max((action["round"] or 0 for action in actions), default=0)
     limit = DEFAULT_MAX_ACTIONS if max_actions is None else max_actions
-    return ReplayResult("verified", actions=actions[:limit], rounds=rounds, has_more=len(actions) > limit)
+    return ReplayResult(
+        "verified", actions=actions[:limit], rounds=rounds, has_more=len(actions) > limit,
+        ancestor_kinds=ancestor_kinds,
+    )

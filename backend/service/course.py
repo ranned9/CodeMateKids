@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from backend.service.content_validation import validate_reply_entries
 
 SUPPORTED_COURSE_VERSION = 1
 CONTENT_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+COURSE_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}")
 TASK_TYPES = ("main", "variant")
 TUTOR_ACTIONS = (
     "ask_question",
@@ -45,6 +47,17 @@ class CourseBundle:
 
     def task_order(self) -> list[str]:
         return [str(task["taskId"]) for task in self.course["tasks"]]
+
+    @property
+    def entry_task_id(self) -> str:
+        return next(task_id for task_id, task in self.tasks.items() if task["type"] == "main")
+
+    @property
+    def transfer_task_id(self) -> str | None:
+        if "transferTaskId" in self.course:
+            return self.course["transferTaskId"]
+        return next((task_id for task_id, task in self.tasks.items()
+                     if task.get("teaching", {}).get("goalKind") == "square"), None)
 
     @property
     def runnable_task_ids(self) -> list[str]:
@@ -113,6 +126,9 @@ def load_course(settings: Settings, refresh: bool = False) -> CourseBundle:
         reason = _task_block_reason(task, registry)
         if reason:
             blocked[task_id] = reason
+        expected_ref = {"courseId": course["courseId"], "version": course["version"], "taskId": task_id}
+        if task["initialProgram"].get("courseRef") != expected_ref:
+            raise _content_error("initialProgram", f"task={task_id} courseRef 不匹配")
         try:
             validate_program(
                 task["initialProgram"],
@@ -169,9 +185,9 @@ def validate_course(course: dict[str, Any]) -> None:
         if key not in course:
             raise _content_error("course_field", key)
 
-    if course["courseId"] != "demo-loop":
+    if not isinstance(course["courseId"], str) or not COURSE_IDENTIFIER.fullmatch(course["courseId"]):
         raise _content_error("course_id", str(course["courseId"]))
-    if int(course["version"]) != SUPPORTED_COURSE_VERSION:
+    if type(course["version"]) is not int or course["version"] != SUPPORTED_COURSE_VERSION:
         raise _content_error("course_version", str(course["version"]))
     if not isinstance(course["title"], str) or not 1 <= len(course["title"]) <= 20:
         raise _content_error("title", "长度不合规")
@@ -209,12 +225,16 @@ def validate_course(course: dict[str, Any]) -> None:
 
     main_task = mains[0]
     variant_ids = {task["taskId"] for task in variants}
-    if main_task.get("variantTaskId") not in variant_ids:
+    if next_task_id(main_task) not in variant_ids:
         raise _content_error("variant_link", "主任务未指向变式任务")
+    compatibility_link = main_task.get("variantTaskId")
+    if compatibility_link is not None and (not isinstance(compatibility_link, str) or compatibility_link not in variant_ids):
+        raise _content_error("variant_link", "主任务的兼容变式链接无效")
     if any(task.get("variantOf") != main_task["taskId"] for task in variants):
         raise _content_error("variant_link", "变式任务未指向主任务")
-    if sum(task.get("teaching", {}).get("goalKind") == "square" for task in variants) > 1:
-        raise _content_error("teaching", "课程只支持一道正方形迁移题")
+    transfer = course.get("transferTaskId")
+    if transfer is not None and (not isinstance(transfer, str) or transfer not in variant_ids):
+        raise _content_error("transfer_task", "迁移任务必须指向本课的变式任务")
     for task_id in by_id:
         visited = set()
         current = task_id
@@ -226,10 +246,15 @@ def validate_course(course: dict[str, Any]) -> None:
 
 
 def next_task_id(task: dict[str, Any]) -> str | None:
-    return task.get("nextTaskId") or (task.get("variantTaskId") if task["type"] == "main" else None)
+    next_id = task.get("nextTaskId")
+    if next_id is not None:
+        return next_id
+    return task.get("variantTaskId") if task["type"] == "main" else None
 
 
 def _validate_task(task: dict[str, Any]) -> None:
+    if not isinstance(task, dict):
+        raise _content_error("task_field", "任务不是对象")
     required = (
         "taskId",
         "type",
@@ -248,6 +273,8 @@ def _validate_task(task: dict[str, Any]) -> None:
     for key in required:
         if key not in task:
             raise _content_error("task_field", f"task={task.get('taskId')} field={key}")
+    if not isinstance(task["taskId"], str) or not COURSE_IDENTIFIER.fullmatch(task["taskId"]):
+        raise _content_error("task_id", str(task["taskId"]))
     if task["type"] not in TASK_TYPES:
         raise _content_error("task_type", str(task["type"]))
     if not str(task["objective"]).strip():
@@ -262,13 +289,33 @@ def _validate_task(task: dict[str, Any]) -> None:
     if not isinstance(criteria, list) or len(criteria) < 1:
         raise _content_error("successCriteria", f"task={task['taskId']}")
     for criterion in criteria:
-        check = criterion.get("check") or {}
-        if not isinstance(check, dict) or "object" not in check or "field" not in check:
+        check = criterion.get("check") if isinstance(criterion, dict) else None
+        if not isinstance(check, dict):
             raise _content_error("successCriteria", f"task={task['taskId']}")
+        value = check.get("value")
+        if (
+            check.get("object") != "stage" or check.get("field") not in ("x", "y", "heading", "steps", "moves")
+            or check.get("op") not in ("eq", "ge", "le")
+            or not (type(value) is int or (type(value) is float and math.isfinite(value)))
+        ):
+            raise _content_error("successCriteria", f"task={task['taskId']}")
+    _validate_execution_criteria(task)
     teaching = task.get("teaching", {})
     goal = teaching.get("goalKind", "distance") if isinstance(teaching, dict) else None
-    if goal not in ("distance", "square"):
+    if goal not in ("distance", "square", "route"):
         raise _content_error("teaching", f"task={task['taskId']}")
+    feedback = teaching.get("feedback", {})
+    if (
+        teaching.get("stageView", "track") not in ("track", "path")
+        or type(teaching.get("useHintLadder", False)) is not bool
+        or any(key in teaching and not _short_text(teaching[key], 24) for key in ("badge", "goalLabel"))
+        or not isinstance(feedback, dict)
+        or any(key not in ("success", "retry", "structureMissed") or not _short_text(value)
+               for key, value in feedback.items())
+    ):
+        raise _content_error("teaching", f"task={task['taskId']} 教学展示配置无效")
+    if "stageGoal" in teaching and not _valid_stage_goal(teaching["stageGoal"]):
+        raise _content_error("teaching", f"task={task['taskId']} 舞台目标配置无效")
     suggested = teaching.get("suggestedStepsPerMove")
     if suggested is not None and (type(suggested) is not int or not 1 <= suggested <= 100):
         raise _content_error("teaching", f"task={task['taskId']}")
@@ -280,8 +327,7 @@ def _validate_task(task: dict[str, Any]) -> None:
         target = step_checks[0].get("value")
         if type(target) is not int or target <= 0 or target % suggested:
             raise _content_error("teaching", f"task={task['taskId']} 步长无法整除目标")
-    expected_program_criteria = ["square_single_repeat"] if goal == "square" else []
-    if task.get("programCriteria", []) != expected_program_criteria or (goal == "square" and task["type"] != "variant"):
+    if task.get("programCriteria", []) not in ([], ["square_single_repeat"]):
         raise _content_error("programCriteria", f"task={task['taskId']}")
     if "nextTaskId" in task and task["nextTaskId"] is not None and (
         not isinstance(task["nextTaskId"], str) or not task["nextTaskId"]
@@ -307,10 +353,46 @@ def _validate_task(task: dict[str, Any]) -> None:
         raise _content_error("reviewStatus", f"task={task['taskId']}")
 
 
-def course_payload(settings: Settings, course_id: str, bundle: CourseBundle | None = None) -> dict[str, Any]:
-    if course_id != "demo-loop":
-        raise _content_error("course_id", course_id)
+def _valid_stage_goal(goal: Any) -> bool:
+    """舞台目标路线：从原点出发，相邻两点横平竖直、互不重合，坐标为 ±20 内的整数。"""
+    if not isinstance(goal, dict) or set(goal) != {"scene", "route"} or goal["scene"] not in ("grid", "road", "beach"):
+        return False
+    route = goal["route"]
+    if not isinstance(route, list) or not 2 <= len(route) <= 20:
+        return False
+    if not all(isinstance(point, list) and len(point) == 2
+               and all(type(value) is int and -20 <= value <= 20 for value in point) for point in route):
+        return False
+    if route[0] != [0, 0]:
+        return False
+    return all((ax == bx) != (ay == by) for (ax, ay), (bx, by) in zip(route, route[1:]))
+
+
+def _short_text(value: Any, limit: int = 160) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= limit
+
+
+def _validate_execution_criteria(task: dict[str, Any]) -> None:
+    rules = task.get("executionCriteria", [])
+    if not isinstance(rules, list):
+        raise _content_error("executionCriteria", f"task={task['taskId']}")
+    for rule in rules:
+        check = rule.get("check") if isinstance(rule, dict) else None
+        required = {"kind", "inside", "atSteps"}
+        if (
+            not isinstance(check, dict) or not required <= check.keys() or check.keys() - required - {"only"}
+            or check["kind"] != "motion.turn" or check["inside"] not in ("control.if", "control.else")
+            or type(check["atSteps"]) is not int or check["atSteps"] < 0
+            or type(check.get("only", False)) is not bool
+            or not _short_text(rule.get("code"), 64) or not _short_text(rule.get("description"))
+        ):
+            raise _content_error("executionCriteria", f"task={task['taskId']}")
+
+
+def course_payload(settings: Settings, course_id: str | None = None, bundle: CourseBundle | None = None) -> dict[str, Any]:
     bundle = bundle or load_course(settings)
+    if course_id is not None and course_id != bundle.course["courseId"]:
+        raise _content_error("course_id", course_id)
     tasks: list[dict[str, Any]] = []
     for task_id in bundle.task_order():
         task = bundle.tasks[task_id]
@@ -336,6 +418,7 @@ def course_payload(settings: Settings, course_id: str, bundle: CourseBundle | No
                 "nextTaskId": next_task_id(task),
                 "teaching": task.get("teaching"),
                 "programCriteria": task.get("programCriteria", []),
+                "executionCriteria": task.get("executionCriteria", []),
             }
         )
     course = bundle.course
@@ -352,6 +435,7 @@ def course_payload(settings: Settings, course_id: str, bundle: CourseBundle | No
             "contentVersion": course["contentVersion"],
         },
         "tasks": tasks,
+        "entryTaskId": bundle.entry_task_id,
         "otherThemes": course.get("otherThemes", []),
         "schemaVersion": bundle.registry.schema_version,
         "agentMode": settings.tutor_mode,

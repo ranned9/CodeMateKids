@@ -87,10 +87,8 @@ class _Emitter:
         elif kind == "motion.move":
             self.emit_line(f"{pad}stage.move({move_step_count(node)})", block_id)
         elif kind == "motion.turn":
-            degrees = number_input_value(inputs.get("degrees", 90))
-            if degrees not in (90, 180, 270):
-                raise CompilationError("角度还不能用", block_id)
-            self.emit_line(f"{pad}stage.turn({int(degrees)})", block_id)
+            degrees = number_input_value(inputs["degrees"])
+            self.emit_line(f"{pad}stage.turn({degrees!r})", block_id)
         elif kind == "look.say":
             text = inputs.get("text", "")
             if not isinstance(text, str):

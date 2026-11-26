@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from math import cos, radians, sin
 
 import pytest
 
@@ -61,6 +62,23 @@ def test_r1_simple_repeat_matches_known_shape() -> None:
     replay = analyze(simple_program()["root"], result["events"], result["objects"])
     assert replay.quality == "verified"
     assert replay.rounds == 2, "重复 2 次即 2 轮；rounds = repeat_enter_count - 1"
+
+
+def test_non_right_angle_turns_move_and_replay() -> None:
+    move = node("move", "motion.move", {})
+    custom = node("custom", "motion.turn", {"degrees": -12.5}, nxt=move)
+    preset = node("preset", "motion.turn", {"degrees": 45}, nxt=custom)
+    root = node("start", "event.start", {}, nxt=preset)
+    result = _run(root)
+    assert result["status"] == "completed"
+    stage = result["objects"][0]
+    angle = radians(32.5)
+    assert stage["x"] == pytest.approx(cos(angle))
+    assert stage["y"] == pytest.approx(sin(angle))
+    assert (stage["heading"], stage["steps"], stage["moves"]) == (32.5, 1, 1)
+    replay = analyze(root, result["events"], result["objects"])
+    assert replay.quality == "verified", replay.reason
+    assert [action["heading"] for action in replay.actions] == [45, 32.5, 32.5]
 
 
 def test_replay_degrades_on_empty_or_disordered_events() -> None:

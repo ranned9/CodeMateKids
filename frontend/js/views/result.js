@@ -1,8 +1,9 @@
 /** 结果区：简短结论、可展开的运行证据与下一步引导。 */
 import { buildResultSummary, deriveTargetSteps } from "../ux/resultSummary.js";
-import { buildStageTrack, STAGE_INSET } from "../ux/stageTrack.js";
+import { completeStraightTail } from "../ux/stageRoute.js";
 import { LOOP_OBSERVATION } from "../ux/loopEvidence.js";
 import { appendDiv, appendList, appendParagraph, clearNode } from "../util/dom.js";
+import { drawStagePath } from "./stagePath.js";
 
 const NEXT_STEP = {
   RUN_TIMEOUT: "检查一下重复次数，或者把大循环改小。",
@@ -74,7 +75,7 @@ export function renderResult(container, state, task, data, callbacks = {}) {
   appendDiv(observations, summary.goalLine);
   if (data.loopBlockId) {
     appendDiv(observations, LOOP_OBSERVATION);
-  } else if (data.status === "completed" && data.success && ["main", "variant"].includes(task?.taskId)) {
+  } else if (data.status === "completed" && data.success && task?.teaching?.suggestedStepsPerMove) {
     appendDiv(observations, "再看看前进积木是不是放在重复里。");
   }
   const stage = data.objects?.find((item) => item.id === "stage");
@@ -206,129 +207,57 @@ function updatePredictionCompare(summary, prediction) {
   }
 }
 
+/** 所有任务共用二维舞台：运行前画出目标，运行后画实际路线；分步查看和单步调试画到当前这一步。 */
 export function updateObjectView(elements, objects, task = null, learning = null, replayFrame = null, debugPath = null) {
   const stage = (objects || []).find((item) => item.id === "stage");
-  const square = task?.teaching?.goalKind === "square";
-  const showPath = square || debugPath?.some((point) => point.heading !== 0);
-  const actions = debugPath ?? learning?.replay?.actions ?? [];
-  if (elements.track) elements.track.hidden = square;
-  if (elements.path) elements.path.hidden = !showPath;
-  if (showPath && elements.path) {
-    const visible = replayFrame ? actions.slice(0, replayFrame.index) : actions;
-    const endpoint = replayFrame ? replayFrame.action : debugPath ? stage : visible.at(-1) || stage;
-    drawStagePath(elements.path, actions, visible, endpoint);
+  let actions = debugPath ?? learning?.replay?.actions ?? [];
+  // 后端只给了前几轮时，能确定是一直往前走的就把剩下的路线补齐，舞台画到最终位置。
+  const tail = !debugPath && learning?.replay?.hasMore ? completeStraightTail(actions, stage) : null;
+  const partial = !debugPath && Boolean(learning?.replay?.hasMore) && !tail;
+  const full = tail ? [...actions, ...tail] : actions;
+  let note = "";
+  if (elements.path) {
+    elements.path.hidden = false;
+    const visible = replayFrame ? actions.slice(0, replayFrame.index) : full;
+    const endpoint = replayFrame ? replayFrame.action : debugPath || tail ? stage : visible.at(-1) || stage;
+    note = drawStagePath(elements.path, {
+      actions: full, visible, endpoint,
+      final: !replayFrame && Boolean(stage) && !partial,
+      numbered: !tail || tail.length + actions.length <= 12,
+      goal: task?.teaching?.stageGoal ?? null,
+      goalLabel: task?.teaching?.goalLabel ?? null,
+    }).note;
   }
-  if (square && elements.path) {
-    const status = replayFrame ? "正在分步查看。" : stage
-      ? `动了 ${stage.moves} 次，累计走了 ${stage.steps} 步。当前位置（${stage.x}，${stage.y}），朝向 ${stage.heading}°${speech(stage)}。`
-      : "海龟在起点。";
-    const traceStatus = !replayFrame && stage && !actions.length && stage.moves > 0
-      ? "这次没有可核对的完整路线。" : !replayFrame && !debugPath && learning?.replay?.hasMore ? "舞台显示路线的前一部分。" : "";
-    elements.meta.textContent = `${status}${traceStatus}`;
-    return;
-  }
+  if (!elements.meta) return;
   const targetSteps = deriveTargetSteps(task);
-  const display = replayFrame ? {
-    steps: replayFrame.action?.totalSteps ?? 0,
-    moves: replayFrame.action?.moves ?? 0,
-    heading: replayFrame.action?.heading ?? 0,
-  } : stage;
-  const track = buildStageTrack({
-    targetSteps,
-    actualSteps: stage?.steps,
-    displaySteps: display?.steps,
-    viewportWidth: elements.track?.clientWidth,
-  });
-  if (elements.lane) {
-    elements.lane.style.width = `${track.width}px`;
-  }
-  if (elements.target) {
-    elements.target.hidden = track.targetPosition == null;
-    if (track.targetPosition != null) elements.target.style.left = `${track.targetPosition}px`;
-  }
-  const tickKey = `${targetSteps}:${stage?.steps}:${track.ticks.at(-1).value}`;
-  if (elements.ticks && elements.ticks.dataset.track !== tickKey) {
-    elements.ticks.dataset.track = tickKey;
-    clearNode(elements.ticks);
-    for (const tick of track.ticks) {
-      const label = document.createElement("span");
-      label.className = "stage-tick";
-      label.style.left = `${tick.position}px`;
-      label.textContent = String(tick.value);
-      elements.ticks.appendChild(label);
-    }
-  }
-  if (!display) {
-    resetObjectView(elements);
-    if (track.targetPosition != null) {
-      elements.meta.textContent = `目标 ${targetSteps} 步。角色在起点。`;
-    }
+  if (replayFrame) {
+    const action = replayFrame.action;
+    elements.meta.textContent = action
+      ? `正在分步查看：动了 ${action.moves ?? 0} 次，累计走了 ${action.totalSteps ?? 0} 步。`
+      : "正在分步查看：海龟在起点。";
     return;
   }
-  elements.actor.style.left = `${track.actorPosition}px`;
-  elements.actor.style.transform = {
-    90: "rotate(-90deg)", 180: "scaleX(-1)", 270: "rotate(90deg)",
-  }[display.heading] || "none";
-  if (elements.track) elements.track.scrollLeft = track.scrollLeft;
-  const overflow = track.overflowLabel ? `（${track.overflowLabel}）` : "";
-  const moves = Number.isFinite(display.moves) ? `动了 ${display.moves} 次，` : "";
-  const position = debugPath ? `，位置（${display.x}，${display.y}）` : "";
-  elements.meta.textContent = `${moves}累计走了 ${display.steps} 步${overflow}${position}，朝向 ${display.heading}°${speech(display)}。`;
+  if (!stage) {
+    elements.meta.textContent = targetSteps != null ? `目标 ${targetSteps} 步。角色在起点。` : "海龟在起点。";
+    return;
+  }
+  const overflow = targetSteps != null && stage.steps > targetSteps ? `（超出目标 ${stage.steps - targetSteps} 步）` : "";
+  const traceStatus = stage.moves > 0 && !full.length
+    ? "这次没有可核对的完整路线。" : partial ? "舞台显示路线的前一部分。" : "";
+  elements.meta.textContent = `动了 ${stage.moves} 次，累计走了 ${stage.steps} 步${overflow}。`
+    + `当前位置（${coordinateText(stage.x)}，${coordinateText(stage.y)}），朝向 ${stage.heading}°${speech(stage)}。${traceStatus}${note}`;
+}
+
+function coordinateText(value) {
+  return Number.isFinite(value) ? Number(value.toFixed(3)) : value;
 }
 
 function speech(stage) {
   return stage.said ? `，说：“${stage.said}”` : "";
 }
 
-function drawStagePath(canvas, actions, visible, endpoint) {
-  const context = canvas.getContext?.("2d");
-  if (!context) return;
-  const { width, height } = canvas;
-  const points = [...actions, ...(endpoint ? [endpoint] : [])];
-  const extent = Math.max(2, ...points.map(({ x, y }) => Math.max(Math.abs(x), Math.abs(y))));
-  const unit = (Math.min(width, height) / 2 - 16) / extent;
-  const origin = { x: width / 2, y: height / 2 };
-  const point = ({ x, y }) => [origin.x + x * unit, origin.y - y * unit];
-  context.clearRect(0, 0, width, height);
-  context.strokeStyle = "#bae0d8";
-  context.lineWidth = 1;
-  context.beginPath();
-  context.moveTo(12, origin.y);
-  context.lineTo(width - 12, origin.y);
-  context.moveTo(origin.x, 12);
-  context.lineTo(origin.x, height - 12);
-  context.stroke();
-  context.strokeStyle = "#08796d";
-  context.lineWidth = 3;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.beginPath();
-  context.moveTo(origin.x, origin.y);
-  for (const position of visible) context.lineTo(...point(position));
-  context.stroke();
-  context.fillStyle = "#08796d";
-  context.beginPath();
-  context.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
-  context.fill();
-  const [x, y] = point(endpoint || { x: 0, y: 0 });
-  context.save();
-  context.translate(x, y);
-  context.rotate(-(endpoint?.heading || 0) * Math.PI / 180);
-  context.fillStyle = "#17554d";
-  context.beginPath();
-  context.moveTo(11, 0);
-  context.lineTo(-4, -6);
-  context.lineTo(-4, 6);
-  context.closePath();
-  context.fill();
-  context.restore();
-}
-
-export function resetObjectView(elements) {
+/** 回到运行前：清掉说明文字；给了任务时重画运行前的舞台（目标和起点）。 */
+export function resetObjectView(elements, task = null) {
+  if (task && elements.path) updateObjectView({ path: elements.path }, [], task);
   if (elements.meta) elements.meta.textContent = "角色还没有动过。";
-  if (elements.actor) {
-    elements.actor.style.left = `${STAGE_INSET}px`;
-    elements.actor.style.transform = "none";
-  }
-  if (elements.track) elements.track.scrollLeft = 0;
 }

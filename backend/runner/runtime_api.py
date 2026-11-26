@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import math
 from typing import Any, Callable
 
 SAFE_BUILTIN_NAMES = (
@@ -51,13 +52,17 @@ BANNED_BUILTIN_NAMES = (
 )
 
 
+def turn_heading(heading: int | float, degrees: int | float) -> int | float:
+    return (heading + degrees % 360) % 360
+
+
 class Stage:
     """受控舞台对象：只暴露移动、转向与说话。"""
 
     def __init__(self) -> None:
-        self.x = 0
-        self.y = 0
-        self.heading = 0
+        self.x: int | float = 0
+        self.y: int | float = 0
+        self.heading: int | float = 0
         self.said = ""
         self.steps = 0
         self.moves = 0
@@ -66,19 +71,18 @@ class Stage:
         amount = int(steps)
         if amount < 0 or amount > 1000:
             raise ValueError("步数需要在 0 到 1000 之间")
-        if self.heading == 0:
-            self.x += amount
-        elif self.heading == 90:
-            self.y += amount
-        elif self.heading == 180:
-            self.x -= amount
+        if self.heading % 90 == 0:
+            dx, dy = ((1, 0), (0, 1), (-1, 0), (0, -1))[int(self.heading) // 90]
         else:
-            self.y -= amount
+            radians = math.radians(self.heading)
+            dx, dy = math.cos(radians), math.sin(radians)
+        self.x += amount * dx
+        self.y += amount * dy
         self.steps += amount
         self.moves += 1
 
-    def turn(self, degrees: Any) -> None:
-        self.heading = (self.heading + int(degrees)) % 360
+    def turn(self, degrees: int | float) -> None:
+        self.heading = turn_heading(self.heading, degrees)
 
     def say(self, text: Any) -> None:
         self.said = str(text)[:40]

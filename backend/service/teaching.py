@@ -9,6 +9,7 @@ from typing import Any
 
 from backend.domain.program import ProgramError, program_roots, validate_program
 from backend.infra.errors import ApiError
+from backend.runner.protocol import MAX_EVENTS
 from backend.service.program_digest import edit_digest
 from backend.session.teaching_store import TeachingStore
 from backend.tutor.diagnosis import build_facts, classify
@@ -43,6 +44,26 @@ def match_prediction(record: dict[str, Any] | None, digest: str) -> dict[str, An
         return {"match": PredictionMatch.NONE.value}
     match = PredictionMatch.EXACT if record.get("digest") == digest else PredictionMatch.CARRIED
     return {"match": match.value, "value": record["value"]}
+
+
+def execution_failures(roots: list[dict[str, Any]], task: dict, result: dict) -> list[str]:
+    rules = task.get("executionCriteria", [])
+    if not rules or result.get("status") != "completed":
+        return []
+    replay = analyze(roots, result.get("events"), result.get("objects"), max_actions=MAX_EVENTS)
+    if not replay.replayable:
+        return ["这次没有记录到完整的动作，可以试试用更少的积木再跑一次。"]
+    failures = []
+    for rule in rules:
+        check = rule["check"]
+        actions = [action for action in replay.actions if action["kind"] == check["kind"]]
+        if not any(
+            action["totalSteps"] == check["atSteps"]
+            and check["inside"] in replay.ancestor_kinds[action["blockId"]]
+            for action in actions
+        ) or (check.get("only") and len(actions) != 1):
+            failures.append(rule["description"])
+    return failures
 
 
 def build_learning(
@@ -105,7 +126,7 @@ def build_learning(
                 "hasMore": replay.has_more or len(actions) < len(replay.actions),
             },
         }
-        if facts.goalKind == "square":
+        if facts.goalKind == "square" or task.get("executionCriteria"):
             learning.update(routeMet=facts.routeMet, structureMet=facts.structureMet)
         return learning
     except Exception:  # noqa: BLE001 - 教学增强失败必须静默降级

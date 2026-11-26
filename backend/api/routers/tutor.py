@@ -64,6 +64,7 @@ def _build_context(request: Request, body: TutorHintRequest, bundle, store) -> d
     return {
         "request_id": f"tutor-{uuid.uuid4().hex[:12]}",
         "task_id": body.taskId,
+        "course_id": bundle.course["courseId"],
         "objective": task["objective"],
         "program_summary": body.programSummary,
         "program_valid": body.programValid,
@@ -112,6 +113,7 @@ def _scoped_context(body: TutorHintRequest | TutorChatRequest, bundle, store, ke
         "facts": result.get("facts", {}),
         "run_id": run["requestId"] if run else None,
         "goal_kind": task.get("teaching", {}).get("goalKind", "distance"),
+        "hint_ladder": task["hintLadder"] if task.get("teaching", {}).get("useHintLadder") else [],
         "program_valid": program_valid,
         "last_run_status": run["status"] if run else None,
         "highest_hint": max((hint["level"] for hint in hints if hint["pattern"] == pattern), default=0),
@@ -513,6 +515,7 @@ def _respond(request, body, bundle, context, key, decision, active, eligible, st
                 "level": level, "pattern": decision.error_pattern, "action": decision.action, "knowledgePoints": points,
             })
     elif level >= 1 and body.learnerChoice in HINT_LEDGER_CHOICES:
+        points = bundle.tasks[body.taskId].get("teaching", {}).get("knowledgePointIds", [])
         store.note_hint(body.taskId, level)
         store.add_evidence(
             task_id=body.taskId,
@@ -522,6 +525,7 @@ def _respond(request, body, bundle, context, key, decision, active, eligible, st
             confidence=0.9,
             alternatives=["孩子可能只是随手点的"],
             follow_up="看孩子是否根据提示修改并再次运行",
+            course_id=bundle.course["courseId"], knowledge_point_id=next(iter(points), "kp.loop"),
         )
     return response
 
